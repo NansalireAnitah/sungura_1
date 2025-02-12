@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # front_end
 
 A new Flutter project.
@@ -14,3 +15,6 @@ A few resources to get you started if this is your first Flutter project:
 For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
+=======
+# FinalYearPrjctFrontend
+>>>>>>> b38175f8d72c96dbc9f185b53ac5cca1366f3567
