@@ -22,8 +22,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Payment Method'),
-        foregroundColor: Colors.white,
-        backgroundColor: const Color.fromARGB(255, 106, 137, 240),
+        foregroundColor: const Color.fromARGB(255, 14, 13, 13),
+        backgroundColor: const Color.fromARGB(255, 247, 247, 248),
         centerTitle: true,
       ),
       body: Padding(

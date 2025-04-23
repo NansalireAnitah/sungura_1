@@ -1,19 +1,6 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
@@ -31,8 +18,30 @@
 
   <title>front_end</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js"></script>
+  <!-- reCAPTCHA -->
+  <script src="https://www.google.com/recaptcha/api.js" async defer></script>
 </head>
 <body>
+  <!-- Firebase Configuration -->
+   <div id="recaptcha-container"></div>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyC5kLRCoz-Z1SxlGcGlsJD5rms_XRyg6HA",
+      authDomain: "sungura-project.firebaseapp.com",
+      projectId: "sungura-project",
+      storageBucket: "sungura-project.firebasestorage.app",
+      messagingSenderId: "64371233764",
+      appId: "1:64371233764:web:c27be6a145c8d3bd502df1"
+    };
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+  </script>
+
+  <!-- Flutter Bootstrap -->
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

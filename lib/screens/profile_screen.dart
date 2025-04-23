@@ -1,290 +1,289 @@
-import 'package:flutter/material.dart';
 import 'dart:io';
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:front_end/screens/login_screen.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:http/http.dart' as http;
+import 'package:front_end/screens/Signup.dart';
+import 'package:provider/provider.dart';
+import 'package:front_end/providers/cart_provider.dart';
+import 'package:front_end/providers/auth_provider.dart';
+import 'package:image_picker_web/image_picker_web.dart';
+import 'package:universal_html/html.dart' as html;
 
-class ProfileScreen extends StatefulWidget {
+class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
-  @override
-  State<ProfileScreen> createState() => _ProfileScreenState();
-}
+  Future<void> _logout(BuildContext context) async {
+    try {
+      final authProvider = Provider.of<MyAuthProvider>(context, listen: false);
+      final cartProvider = Provider.of<CartProvider>(context, listen: false);
 
-class _ProfileScreenState extends State<ProfileScreen> {
-  File? _profileImage;
-  String _userName = "James Martin"; // Default name
-  String _contact = "123-456-7890"; // Default contact number
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _contactController = TextEditingController();
+      await authProvider.logout();
+      await FirebaseAuth.instance.signOut();
+      cartProvider.clearCart();
 
-  Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(
-        source: ImageSource.gallery); // Pick from gallery
-
-    if (pickedFile != null) {
-      setState(() {
-        _profileImage = File(pickedFile.path);
-      });
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => const LoginScreen()),
+        (Route<dynamic> route) => false,
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Logout failed: ${e.toString()}')),
+      );
     }
   }
 
-  Future<void> _updatePersonalInfo() async {
-    _nameController.text = _userName; // Set the current name in the dialog
-    _contactController.text = _contact; // Set the current contact in the dialog
-    await showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Update Personal Info'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: _nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Enter your name',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _contactController,
-                decoration: const InputDecoration(
-                  labelText: 'Enter your contact number',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.phone,
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop(); // Close the dialog
-              },
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  _userName = _nameController.text; // Update the name
-                  _contact = _contactController.text; // Update the contact
-                });
-                Navigator.of(context).pop(); // Close the dialog
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        );
+  Future<void> _updateProfileImage(BuildContext context) async {
+    try {
+      String? imageUrl;
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+
+      if (kIsWeb) {
+        final html.File? pickedFile = await ImagePickerWeb.getImageAsFile();
+        if (pickedFile != null) {
+          imageUrl = await _uploadImageToImgBBWeb(pickedFile);
+        }
+      } else {
+        final pickedFile =
+            await ImagePicker().pickImage(source: ImageSource.gallery);
+        if (pickedFile != null) {
+          imageUrl = await _uploadImageToImgBBMobile(File(pickedFile.path));
+        }
+      }
+
+      if (imageUrl != null) {
+        final authProvider = Provider.of<MyAuthProvider>(context, listen: false);
+        final firebaseUser = FirebaseAuth.instance.currentUser;
+
+        if (firebaseUser != null) {
+          await authProvider.updateUserProfile(
+            firebaseUser.uid,
+            {'profileImageUrl': imageUrl},
+          );
+          await firebaseUser.updatePhotoURL(imageUrl);
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Profile image updated successfully')),
+          );
+        }
+      }
+
+      Navigator.of(context).pop();
+    } catch (e) {
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to update image: ${e.toString()}')),
+      );
+    }
+  }
+
+  Future<String> _uploadImageToImgBBMobile(File imageFile) async {
+    const apiKey = 'a76d491b3f50093fddaf42dcfaedc1c6';
+    final uri = Uri.parse('https://api.imgbb.com/1/upload?key=$apiKey');
+    final request = http.MultipartRequest('POST', uri)
+      ..files.add(await http.MultipartFile.fromPath('image', imageFile.path));
+
+    final response = await request.send();
+    final responseData = await response.stream.bytesToString();
+    final jsonData = json.decode(responseData);
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to upload image');
+    }
+
+    return jsonData['data']['url'];
+  }
+
+  Future<String> _uploadImageToImgBBWeb(html.File imageFile) async {
+    const apiKey = 'a76d491b3f50093fddaf42dcfaedc1c6';
+    final uri = Uri.parse('https://api.imgbb.com/1/upload?key=$apiKey');
+
+    final reader = html.FileReader();
+    reader.readAsArrayBuffer(imageFile);
+    await reader.onLoad.first;
+
+    final bytes = reader.result as List<int>;
+    final base64Image = base64Encode(bytes);
+
+    final response = await http.post(
+      uri,
+      body: {
+        'image': base64Image,
       },
     );
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to upload image');
+    }
+    final jsonData = json.decode(response.body);
+    return jsonData['data']['url'];
   }
 
-  // Methods for each section
-  Widget _buildSection(String title, Widget content) {
-    return Container(
-      margin: const EdgeInsets.only(top: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: ExpansionTile(
-        title: Text(title,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        children: [content],
-      ),
-    );
-  }
-
-  // Content for Personal Info
-  Widget _personalInfoContent() {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ListTile(
-            title:
-                Text('Name: $_userName', style: const TextStyle(fontSize: 18)),
-            trailing: IconButton(
-              icon: const Icon(Icons.edit),
-              onPressed: _updatePersonalInfo,
-            ),
-          ),
-          const SizedBox(height: 10),
-          ListTile(
-            title: Text('Contact: $_contact',
-                style: const TextStyle(fontSize: 18)),
-            trailing: IconButton(
-              icon: const Icon(Icons.edit),
-              onPressed: _updatePersonalInfo,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Content for Addresses
-  Widget _addressesContent() {
-    return const Padding(
-      padding: EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ListTile(title: Text('Home Address: 123 Main St, Springfield')),
-          ListTile(title: Text('Work Address: 456 Office Ave, Cityville')),
-        ],
-      ),
-    );
-  }
-
-  // Content for Favorites
-  Widget _favoritesContent() {
-    return const Padding(
-      padding: EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ListTile(title: Text('Favorite Product 1')),
-          ListTile(title: Text('Favorite Service 2')),
-        ],
-      ),
-    );
-  }
-
-  // // Content for FAQs
-  // Widget _faqsContent() {
-  //   return const Padding(
-  //     padding: EdgeInsets.all(16.0),
-  //     child: Column(
-  //       crossAxisAlignment: CrossAxisAlignment.start,
-  //       children: [
-  //         ListTile(
-  //           title: Text('Q1: How do I reset my password?'),
-  //           subtitle: Text('A1: Go to Settings > Change Password'),
-  //         ),
-  //         ListTile(
-  //           title: Text('Q2: How can I contact support?'),
-  //           subtitle: Text('A2: You can contact us via the Support section.'),
-  //         ),
-  //       ],
-  //     ),
-  //   );
-  // }
-
-  // Content for User Reviews
-  // Widget _userReviewsContent() {
-  //   return const Padding(
-  //     padding: EdgeInsets.all(16.0),
-  //     child: Column(
-  //       crossAxisAlignment: CrossAxisAlignment.start,
-  //       children: [
-  //         ListTile(
-  //           title: Text('Review by User 1'),
-  //           subtitle: Text('Great product! Highly recommend.'),
-  //         ),
-  //         ListTile(
-  //           title: Text('Review by User 2'),
-  //           subtitle: Text('Not bad, but can improve quality.'),
-  //         ),
-  //       ],
-  //     ),
-  //   );
-  // }
-
-  // Content for Settings
-  Widget _settingsContent() {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: ElevatedButton(
-        onPressed: () {
-          // You can navigate to the Admin Login Screen here
-          // Navigator.push(context, MaterialPageRoute(builder: (context) => const AdminLoginScreen()));
-        },
-        child: const Text('Go to Admin Login'),
-      ),
-    );
+  ImageProvider _getProfileImage(String? firebaseUrl, String? userDataUrl) {
+    if (userDataUrl != null && userDataUrl.isNotEmpty) {
+      return NetworkImage(userDataUrl);
+    } else if (firebaseUrl != null) {
+      return NetworkImage(firebaseUrl);
+    }
+    return const AssetImage('images/profile.png');
   }
 
   @override
   Widget build(BuildContext context) {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final authProvider = Provider.of<MyAuthProvider>(context);
+    final userData = authProvider.user;
+
+    final userName = userData?.name ?? firebaseUser?.displayName ?? 'Guest';
+    final userEmail = firebaseUser?.email ?? '';
+    final userPhotoUrl = firebaseUser?.photoURL;
+
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text(
-          'Profile',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
         ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black),
+        title: const Text("Profile"),
         centerTitle: true,
       ),
       body: SingleChildScrollView(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+          padding: const EdgeInsets.symmetric(vertical: 20),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               const SizedBox(height: 20),
-              // Profile Picture
-              Center(
-                child: GestureDetector(
-                  onTap: _pickImage,
-                  child: CircleAvatar(
-                    radius: 50,
-                    backgroundImage: _profileImage != null
-                        ? FileImage(_profileImage!)
-                        : const AssetImage('assets/default_avatar.png')
-                            as ImageProvider,
-                    child: _profileImage == null
-                        ? const Icon(Icons.camera_alt,
-                            size: 30,
-                            color: Color(0xFFF02B3D)) // Changed color here
-                        : null,
+              GestureDetector(
+                onTap: () => _updateProfileImage(context),
+                child: Center(
+                  child: Stack(
+                    children: [
+                      CircleAvatar(
+                        radius: 50,
+                        backgroundImage: _getProfileImage(
+                          userPhotoUrl,
+                          userData?.profileImageUrl,
+                        ),
+                      ),
+                      Positioned(
+                        bottom: 0,
+                        right: 0,
+                        child: Container(
+                          decoration: const BoxDecoration(
+                            color: Colors.black,
+                            shape: BoxShape.circle,
+                          ),
+                          padding: const EdgeInsets.all(5),
+                          child: const Icon(Icons.camera_alt,
+                              color: Colors.white, size: 20),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
               const SizedBox(height: 10),
-              // Name
-              GestureDetector(
-                onTap: _updatePersonalInfo,
-                child: Text(
-                  _userName,
-                  style: const TextStyle(
-                      fontSize: 24, fontWeight: FontWeight.bold),
+              Text(
+                userName,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
-              const Text(
-                '',
-                style: TextStyle(color: Colors.grey, fontSize: 14),
-                textAlign: TextAlign.center,
+              if (userEmail.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  userEmail,
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ],
+              const SizedBox(height: 20),
+              // Only Personal Data shows dropdown arrow
+              _buildProfileOption(
+  icon: Icons.person,
+  title: "Personal Data",
+  hasDropdown: true,
+  onTap: () {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const SignUpScreen()),
+    );
+  },
+),
+              _buildProfileOption(
+                icon: Icons.history,
+                title: "Order History",
+                hasDropdown: false,
+                onTap: () {},
+              ),
+              _buildProfileOption(
+                icon: Icons.discount,
+                title: "Discounts",
+                hasDropdown: false,
+                onTap: () {},
+              ),
+              _buildProfileOption(
+                icon: Icons.settings,
+                title: "Settings",
+                hasDropdown: false,
+                onTap: () {},
               ),
               const SizedBox(height: 20),
-
-              // Profile Options using ExpansionTile for dropdown-like behavior
-              _buildSection(
-                'Personal Info',
-                _personalInfoContent(),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.logout),
+                    label: const Text('Logout'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    onPressed: () => _logout(context),
+                  ),
+                ),
               ),
-              _buildSection(
-                'Favorites',
-                _favoritesContent(),
-              ),
-              // _buildSection(
-              //   'FAQs',
-              //   _faqsContent(),
-              // ),
-              // _buildSection(
-              //   'User Reviews',
-              //   _userReviewsContent(),
-              // ),
-              _buildSection(
-                'Settings',
-                _settingsContent(),
-              ),
+              const SizedBox(height: 20),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileOption({
+    required IconData icon,
+    required String title,
+    required bool hasDropdown,
+    required VoidCallback onTap,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+      child: Card(
+        elevation: 2,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: ListTile(
+          leading: Icon(icon, color: Colors.black),
+          title: Text(title),
+          trailing: hasDropdown 
+              ? const Icon(Icons.chevron_right) 
+              : null,
+          onTap: onTap,
         ),
       ),
     );

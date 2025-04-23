@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "64371233764",
+    "project_id": "sungura-project",
+    "storage_bucket": "sungura-project.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:64371233764:android:b115cb5fc3785b27502df1",
+        "android_client_info": {
+          "package_name": "com.sungura.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDs88NtnLB7kfJftD7dKQKeZhQWGB-7BpI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

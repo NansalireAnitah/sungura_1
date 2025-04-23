@@ -23,7 +23,7 @@ class FinalSplashScreen extends StatelessWidget {
           // Background Image
           Positioned.fill(
             child: Image.asset(
-              'assets/images/Juice.jpg', // Replace with your final background image path
+              'assets/images/juice.jpg', // Replace with your final background image path
               fit: BoxFit.cover,
             ),
           ),
@@ -31,10 +31,10 @@ class FinalSplashScreen extends StatelessWidget {
           Align(
             alignment: Alignment.bottomCenter,
             child: Container(
-              color: Colors.black.withOpacity(0.5),
+              color: Colors.black.withOpacity(0.4),
               padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 30),
               child: const Text(
-                "Highly soothing soft Drinks",
+                " soothing soft Drinks",
                 style: TextStyle(
                   fontSize: 24,
                   color: Colors.white,

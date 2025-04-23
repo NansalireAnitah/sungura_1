@@ -1,299 +1,295 @@
-import 'package:carousel_slider/carousel_slider.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:front_end/screens/category.dart';
-import 'package:front_end/screens/order_screen.dart';
-import 'package:front_end/screens/notification_screen.dart';
-import 'package:front_end/screens/product_card.dart';
-import 'package:front_end/screens/profile_screen.dart';
-import 'package:front_end/screens/pizzacart.dart'; 
-import 'package:front_end/screens/chickencart.dart'; 
+import 'package:carousel_slider/carousel_slider.dart';
+import 'package:provider/provider.dart';
+import '../providers/cart_provider.dart';
+import '../providers/product_provider.dart';
+import '../models/product_model.dart';
+import 'screen3.dart'; // Assuming this is your CheckoutScreen
+
+typedef AddToCartCallback = void Function(Map<String, dynamic> product);
 
 class MenuScreen extends StatefulWidget {
   const MenuScreen({super.key});
 
   @override
-  _MenuScreenState createState() => _MenuScreenState();
+  State<MenuScreen> createState() => _MenuScreenState();
 }
 
 class _MenuScreenState extends State<MenuScreen> {
-  final List<Map<String, dynamic>> products = [
-    {
-      'imagePath': 'assets/images/grill.jpg',
-      'title': 'Grilled Chicken',
-      'price': 60000,
-      'isAddedToCart': false,
-    },
-    {
-      'imagePath': 'assets/images/PIZZA.jpg',
-      'title': 'Cheesy Pizza',
-      'price': 45000,
-      'isAddedToCart': false,
-    },
-    {
-      'imagePath': 'assets/images/burgger.jpg',
-      'title': 'Beef Burger',
-      'price': 35000,
-      'isAddedToCart': false,
-    },
-    {
-      'imagePath': 'assets/images/meat.jpg',
-      'title': 'Fresh Salad',
-      'price': 25000,
-      'isAddedToCart': false,
-    },
-    {
-      'imagePath': 'assets/images/lit1.jpg',
-      'title': 'Chocolate Cake',
-      'price': 20000,
-      'isAddedToCart': false,
-    },
-    {
-      'imagePath': 'assets/images/juicy.jpg',
-      'title': 'Fresh Juice',
-      'price': 15000,
-      'isAddedToCart': false,
-    },
-  ];
+  final TextEditingController _searchController = TextEditingController();
+  List<Product> filteredProducts = [];
 
-  final List<Map<String, dynamic>> cartItems = [];
-
-  void addToCart(Map<String, dynamic> product) {
-    setState(() {
-      final existingItem = cartItems.firstWhere(
-        (item) => item['name'] == product['title'],
-        orElse: () => {},
-      );
-      if (existingItem.isNotEmpty) {
-        existingItem['quantity'] += 1;
-      } else {
-        cartItems.add({
-          'name': product['title'],
-          'price': product['price'],
-          'image': product['imagePath'],
-          'quantity': 1,
-        });
-      }
-      product['isAddedToCart'] = true;
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(_onSearchChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<ProductProvider>(context, listen: false).fetchProducts();
     });
   }
 
-  void navigateToCart() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => OrderScreen(cartItems: cartItems, onAddToCart: addToCart),
-      ),
-    );
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
-  void navigateToProfile() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const ProfileScreen(),
-      ),
-    );
+  void _onSearchChanged() {
+    final query = _searchController.text.toLowerCase();
+    final productProvider = Provider.of<ProductProvider>(context, listen: false);
+    setState(() {
+      filteredProducts = query.isEmpty
+          ? productProvider.products
+          : productProvider.products.where((product) {
+              final name = product.name.toLowerCase();
+              return name.contains(query);
+            }).toList();
+    });
   }
 
-  void navigateToPizzaMenu() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => PizzaMenuScreen(cartItems: cartItems, onAddToCart: addToCart),
-      ),
-    );
-  }
-
-  void navigateToChickenMenu() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ChickenCornerScreen(cartItems: cartItems, onAddToCart: addToCart),
-      ),
-    );
+  void _filterByCategory(String category) {
+    final productProvider = Provider.of<ProductProvider>(context, listen: false);
+    setState(() {
+      filteredProducts = productProvider.products
+          .where((product) => product.category == category)
+          .toList();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final cartProvider = Provider.of<CartProvider>(context, listen: false);
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: ColorFiltered(
-            colorFilter: const ColorFilter.mode(
-              Colors.white,
-              BlendMode.srcIn,
-            ),
-            child: Image.asset(
-              'assets/images/back.png',
-              width: 24.0,
-              height: 24.0,
-            ),
-          ),
-          onPressed: () {
-            Navigator.pop(context);
-          },
-        ),
-        title: Container(
-          padding: const EdgeInsets.all(8.0),
-          child: const Text(
-            'Menu',
-            style: TextStyle(color: Color.fromARGB(255, 253, 253, 253)),
-          ),
-        ),
+        title: const Text('Sungura House'),
         centerTitle: true,
-        backgroundColor: const Color.fromARGB(255, 103, 100, 253),
-        iconTheme: const IconThemeData(color: Colors.white),
+        
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(10.0),
-              child: TextField(
-                decoration: InputDecoration(
-                  hintText: 'Search',
-                  prefixIcon:
-                      const Icon(Icons.search, color: Color(0xFFF02B3D)),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
+      body: Consumer<ProductProvider>(
+        builder: (context, productProvider, _) {
+          if (productProvider.isLoading) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (filteredProducts.isEmpty && !productProvider.isLoading) {
+            filteredProducts = productProvider.products.where((p) => p.isAvailable).toList();
+          }
+          if (filteredProducts.isEmpty) {
+            return const Center(child: Text('No products available'));
+          }
+
+          return SingleChildScrollView(
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(10.0),
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: 'What do you like to eat?',
+                      prefixIcon: const Icon(Icons.search),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-            // Carousel for images
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 10.0),
-              child: CarouselSlider(
-                options: CarouselOptions(
-                  height: 200,
-                  enlargeCenterPage: true,
-                  autoPlay: true,
-                  aspectRatio: 16 / 9,
-                  viewportFraction: 0.8,
-                ),
-                items: [
-                  'assets/images/PIZZA.jpg',
-                  'assets/images/meat.jpg',
-                  'assets/images/sungura.png',
-                ].map((image) {
-                  return Builder(
-                    builder: (BuildContext context) {
-                      return Container(
-                        decoration: BoxDecoration(
-                          image: DecorationImage(
-                            image: AssetImage(image),
-                            fit: BoxFit.cover,
+                CarouselSlider(
+                  options: CarouselOptions(autoPlay: true),
+                  items: productProvider.products
+                      .where((p) => p.isAvailable)
+                      .take(3)
+                      .map((product) {
+                    return Builder(
+                      builder: (BuildContext context) {
+                        return Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 5.0),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(20),
+                            child: Image.network(
+                              product.imageUrl,
+                              fit: BoxFit.cover,
+                              width: double.infinity,
+                              loadingBuilder: (context, child, loadingProgress) {
+                                if (loadingProgress == null) return child;
+                                return const Center(child: CircularProgressIndicator());
+                              },
+                              errorBuilder: (context, error, stackTrace) {
+                                if (kDebugMode) {
+                                  print('Carousel image error for ${product.imageUrl}: $error');
+                                }
+                                return Image.network(
+                                  'https://via.placeholder.com/150',
+                                  fit: BoxFit.cover,
+                                  width: double.infinity,
+                                );
+                              },
+                            ),
                           ),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
+                        );
+                      },
+                    );
+                  }).toList(),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8.0),
+                  child: Text('Categories',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                ),
+                SizedBox(
+                  height: 120.0,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: [
+                      _buildCategoryChip('Pizza', 'assets/images/PIZZA.jpg'),
+                      _buildCategoryChip('Chicken', 'assets/images/Whole Grilled chicken'),
+                      _buildCategoryChip('Burger', 'assets/images/burgger'),
+                      _buildCategoryChip('Beef', 'assets/images/frys'),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(10.0),
+                  child: GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      childAspectRatio: 0.75,
+                    ),
+                    itemCount: filteredProducts.length,
+                    itemBuilder: (context, index) {
+                      final product = filteredProducts[index];
+                      final cartItem = {
+                        'title': product.name,
+                        'price': product.price,
+                        'image': product.imageUrl,
+                        'quantity': 1,
+                      };
+                      return ProductCard(
+                        product: cartItem,
+                        onAddToCart: () {
+                          cartProvider.addItem(cartItem);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('${product.name} added to cart')),
+                          );
+                        },
+                        isInCart:
+                            cartProvider.items.any((item) => item['title'] == product.name),
                       );
                     },
-                  );
-                }).toList(),
-              ),
-            ),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 10.0, vertical: 5.0),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  "Categories",
-                  style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black),
-                ),
-              ),
-            ),
-            // Horizontally scrollable categories
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  // Category Icon for Pizza
-                  CategoryIcon(
-                    imagePath: 'assets/images/PIZZA.jpg',
-                    label: 'Pizza',
-                    onTap: navigateToPizzaMenu,
                   ),
-                  // Category Icon for Chicken
-                  CategoryIcon(
-                    imagePath: 'assets/images/grill.jpg',
-                    label: 'Chicken',
-                    onTap: navigateToChickenMenu,
-                  ),
-                  // Add more categories as needed
-                ],
-              ),
-            ),
-            // Product Grid
-            Padding(
-              padding: const EdgeInsets.all(10.0),
-              child: GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  mainAxisSpacing: 10.0,
-                  crossAxisSpacing: 10.0,
-                  childAspectRatio: 2 / 3,
                 ),
-                itemCount: products.length,
-                itemBuilder: (context, index) {
-                  final product = products[index];
-                  return ProductCard(
-                    imagePath: product['imagePath'],
-                    title: product['title'],
-                    price: product['price'].toString(),
-                    onAddToCart: () => addToCart(product),
-                    cartButtonColor: product['isAddedToCart']
-                        ? Colors.purple.withOpacity(0.6)
-                        : Colors.black,
-                  );
-                },
-              ),
+              ],
             ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildCategoryChip(String label, String category) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+      child: InkWell(
+        onTap: () => _filterByCategory(category),
+        child: Column(
+          children: [
+            CircleAvatar(
+              radius: 30,
+              backgroundImage: AssetImage('assets/images/$category.jpg'),
+            ),
+            const SizedBox(height: 5),
+            Text(label),
           ],
         ),
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        backgroundColor: const Color(0xFF0050A5),
-        selectedItemColor: Colors.black,
-        unselectedItemColor: Colors.black54,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: 'Home',
+    );
+  }
+}
+
+class ProductCard extends StatelessWidget {
+  final Map<String, dynamic> product;
+  final VoidCallback onAddToCart;
+  final bool isInCart;
+
+  const ProductCard({
+    super.key,
+    required this.product,
+    required this.onAddToCart,
+    required this.isInCart,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+              child: _buildImage(),
+            ),
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.shopping_cart),
-            label: 'Cart',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.notifications),
-            label: 'Notifications',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person),
-            label: 'Profile',
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  product['title']?.toString() ?? 'Unknown Item',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'UGX ${product['price']?.toStringAsFixed(0) ?? '0'}',
+                      style: TextStyle(color: Colors.green[700]),
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        Icons.add_shopping_cart,
+                        color: isInCart ? Colors.blue : Colors.black,
+                      ),
+                      onPressed: onAddToCart,
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ],
-        onTap: (index) {
-          if (index == 1) {
-            navigateToCart();
-          } else if (index == 2) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) =>
-                    const NotificationScreen(notifications: []),
-              ),
-            );
-          } else if (index == 3) {
-            navigateToProfile();
-          }
-        },
       ),
+    );
+  }
+
+  Widget _buildImage() {
+    final imageUrl = product['image']?.toString() ?? 'https://via.placeholder.com/150';
+    return Image.network(
+      imageUrl,
+      fit: BoxFit.cover,
+      width: double.infinity,
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return const Center(child: CircularProgressIndicator());
+      },
+      errorBuilder: (context, error, stackTrace) {
+        if (kDebugMode) {
+          print('ProductCard image error for $imageUrl: $error');
+        }
+        return Image.network(
+          'https://via.placeholder.com/150',
+          fit: BoxFit.cover,
+          width: double.infinity,
+        );
+      },
     );
   }
 }

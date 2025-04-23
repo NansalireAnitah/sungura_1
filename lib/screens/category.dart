@@ -5,7 +5,7 @@ class CategoryIcon extends StatelessWidget {
   final String label;
   final void Function() onTap;
 
-  const CategoryIcon({
+  const CategoryIcon({super.key, 
     required this.imagePath,
     required this.label,
     required this.onTap,
@@ -34,7 +34,7 @@ class CategoryIcon extends StatelessWidget {
               ),
             ),
             // Label under the icon
-            SizedBox(height: 5.0), // Adds space between the image and the label
+            const SizedBox(height: 5.0), // Adds space between the image and the label
             Text(
               label,
               textAlign: TextAlign.center, // Centers the label
