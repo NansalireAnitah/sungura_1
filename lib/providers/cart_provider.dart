@@ -12,15 +12,24 @@ class CartProvider with ChangeNotifier {
         0, (sum, item) => sum + (item['price'] * (item['quantity'] ?? 1)));
   }
 
-  // Add item to cart (with quantity tracking)
+  // Add item to cart (simplified to take just the product map)
   void addItem(Map<String, dynamic> product) {
-    final uniqueCartItem = {
-      ...product,
-      'cartItemId': '${product['id']}_${DateTime.now().millisecondsSinceEpoch}',
-      'quantity': 1, // Initialize quantity
-    };
+    // Check if item already exists in cart
+    final existingIndex = _items.indexWhere(
+      (item) => item['id'] == product['id'], // Compare by product ID
+    );
 
-    _items.add(uniqueCartItem);
+    if (existingIndex >= 0) {
+      // Item exists - increment quantity
+      _items[existingIndex]['quantity']++;
+    } else {
+      // Add new item with unique cart ID
+      _items.add({
+        ...product,
+        'cartItemId': '${product['id']}_${DateTime.now().millisecondsSinceEpoch}',
+        'quantity': 1,
+      });
+    }
     notifyListeners();
   }
 

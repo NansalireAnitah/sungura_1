@@ -1,23 +1,18 @@
-plugins {
-  // ...
-
-  // Add the dependency for the Google services Gradle plugin
-  id 'com.google.gms.google-services' version '4.4.2' apply false
-
-}
-
 buildscript {
+    ext.kotlin_version = '1.9.22'
     repositories {
         google()
         mavenCentral()
     }
     dependencies {
         classpath 'com.android.tools.build:gradle:7.3.1'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
         classpath 'com.google.gms:google-services:4.3.15'
-        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.7.20'
-        // Add for SafetyNet/recaptcha
-        classpath 'com.google.android.gms:strict-version-matcher-plugin:1.2.4'
     }
+}
+
+plugins {
+    id 'com.google.gms.google-services' version '4.3.15' apply false
 }
 
 allprojects {
@@ -27,10 +22,25 @@ allprojects {
     }
 }
 
+// Special configuration for plugins
+gradle.projectsLoaded {
+    rootProject.allprojects { project ->
+        project.plugins.whenPluginAdded {
+            if (it.class.name == 'com.android.build.gradle.LibraryPlugin') {
+                project.android {
+                    compileSdkVersion 34
+                    defaultConfig {
+                        minSdkVersion 21
+                    }
+                }
+            }
+        }
+    }
+}
+
 rootProject.buildDir = '../build'
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
-    project.evaluationDependsOn(':app')
 }
 
 tasks.register('clean', Delete) {

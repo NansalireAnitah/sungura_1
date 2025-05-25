@@ -1,11 +1,17 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:front_end/models/notification_model.dart';
+import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
+import 'package:front_end/screens/home_screen.dart';
 import 'package:provider/provider.dart';
+import 'package:front_end/models/notification_model.dart';
 import 'package:front_end/providers/notification_provider.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:front_end/screens/login_screen.dart';
-import 'package:front_end/screens/Signup.dart';
+import 'package:front_end/screens/signup.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'dart:async';
 
 class CheckoutScreen extends StatefulWidget {
   final List<Map<String, dynamic>> cartItems;
@@ -13,232 +19,470 @@ class CheckoutScreen extends StatefulWidget {
   final Function(Map<String, dynamic>) onAddToCart;
 
   const CheckoutScreen({
-    super.key,
+    Key? key,
     required this.cartItems,
     required this.onOrderPlaced,
     required this.onAddToCart,
-  });
+  }) : super(key: key);
 
   @override
-  _CheckoutScreenState createState() => _CheckoutScreenState();
+  State<CheckoutScreen> createState() => _CheckoutScreenState();
 }
 
 class _CheckoutScreenState extends State<CheckoutScreen> {
-  int currentStep = 0;
-  String selectedOption = 'Take Away';
-  final String takeAwayImage = 'assets/images/takeaway.jpg';
-  final String deliveryImage = 'assets/images/delivery.jpg';
-  final TextEditingController _locationController = TextEditingController();
+  int _currentStep = 0;
+  String _selectedOption = 'Take Away';
   final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _searchController = TextEditingController();
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   bool _isLoading = true;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  bool _isMapReady = false;
+  final firestore.FirebaseFirestore _firestore = firestore.FirebaseFirestore.instance;
+  String? _userName;
+
+  // Map-related variables
+  GoogleMapController? _mapController;
+  LatLng _selectedLocation = const LatLng(0.3476, 32.5825); // Kampala center
+  String? _selectedAddress;
+  List<Map<String, dynamic>> _placeSuggestions = [];
+  bool _isSearching = false;
+  Timer? _debounce;
+
+  // Nearby locations variables
+  List<Map<String, dynamic>> _nearbyLocations = [];
+  bool _isFetchingNearby = false;
+
+  // Google Maps API key
+  final String _googleApiKey = 'AIzaSyA7w9jicOGfuPbUILRJBud1sVGCukZ-7rI'; // Replace with your actual API key
+
+  static const _takeAwayImage = 'assets/images/takeaway.jpg';
+  static const _deliveryImage = 'assets/images/delivery.jpg';
 
   @override
   void initState() {
     super.initState();
-    _checkAuthStatus();
-    final user = FirebaseAuth.instance.currentUser;
-    if (user?.phoneNumber != null) {
-      _phoneController.text = user!.phoneNumber!;
+    if (kIsWeb) {
+      _isMapReady = false;
+    } else {
+      Future.delayed(Duration(milliseconds: 500), () {
+        setState(() => _isMapReady = true);
+      });
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initializeUserData();
+    });
+  }
+
+  Future<void> _initializeUserData() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      if (user.phoneNumber != null) {
+        _phoneController.text = user.phoneNumber!.replaceAll('+256', '');
+      }
+      final userDoc = await _firestore.collection('users').doc(user.uid).get();
+      _userName = userDoc.data()?['name']?.toString() ?? 'Anonymous';
+    }
+    await _checkAuthStatus();
   }
 
   Future<void> _checkAuthStatus() async {
-    User? user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      setState(() => _isLoading = false);
+    if (FirebaseAuth.instance.currentUser == null && mounted) {
       _showAuthRequiredDialog();
-    } else {
-      setState(() => _isLoading = false);
     }
+    setState(() => _isLoading = false);
   }
 
   void _showAuthRequiredDialog() {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Authentication Required'),
-          content: const Text(
-              'You need to have an account to place an order. Please log in or sign up.'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const LoginScreen()),
-                ).then((_) => _checkAuthStatus());
-              },
-              child: const Text('Login'),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const SignUpScreen()),
-                ).then((_) => _checkAuthStatus());
-              },
-              child: const Text('Sign Up'),
-            ),
-          ],
-        );
-      },
+      builder: (context) => AlertDialog(
+        title: const Text('Authentication Required'),
+        content: const Text('You need an account to place orders. Please login or sign up.'),
+        actions: [
+          TextButton(
+            onPressed: () => _navigateToAuthScreen(const LoginScreen()),
+            child: const Text('Login'),
+          ),
+          TextButton(
+            onPressed: () => _navigateToAuthScreen(const SignUpScreen(isEditing: false)),
+            child: const Text('Sign Up'),
+          ),
+        ],
+      ),
     );
   }
 
-  void onConfirmPressed() {
-    setState(() {
-      if (currentStep < 2) {
-        currentStep++;
-      } else {
-        if (!_formKey.currentState!.validate()) return;
-        _showOrderConfirmationDialog(context);
+  void _navigateToAuthScreen(Widget screen) {
+    Navigator.pop(context);
+    Navigator.push(context, MaterialPageRoute(builder: (_) => screen)).then((_) {
+      if (mounted) {
+        _checkAuthStatus();
       }
     });
   }
 
-  Future<void> _saveOrderToFirestore(
-      String orderId, String phone, String location) async {
+  void _handleStepContinue() {
+    if (_currentStep == 2 && !_formKey.currentState!.validate()) return;
+    if (_currentStep == 2 && _selectedOption == 'Delivery' && _selectedAddress == null) {
+      _showErrorSnackbar('Please select a delivery address.');
+      return;
+    }
+
+    setState(() {
+      if (_currentStep < 2) {
+        _currentStep++;
+      } else {
+        _processOrderConfirmation();
+      }
+    });
+  }
+
+  Future<void> _processOrderConfirmation() async {
+    final orderId = DateTime.now().millisecondsSinceEpoch.toString();
+    final phone = _formatPhone(_phoneController.text);
+
+    try {
+      await _saveOrderToFirestore(orderId, phone);
+      widget.onOrderPlaced(orderId);
+      await _showOrderSuccessDialog(orderId, phone);
+    } catch (e) {
+      _showErrorSnackbar('Failed to place order: ${e.toString()}');
+    }
+  }
+
+  Future<void> _saveOrderToFirestore(String orderId, String phone) async {
     final user = FirebaseAuth.instance.currentUser;
-    final orderItems = widget.cartItems.map((item) {
-      return {
-        'name': item['title'] as String? ?? 'Unknown Item',
-        'image': item['image'] as String? ?? '',
-        'price': item['price'] is int
-            ? (item['price'] as int).toDouble()
-            : item['price'] as double? ?? 0.0,
-        'quantity': item['quantity'] as int? ?? 1,
-      };
-    }).toList();
+    if (user == null) throw Exception('User not authenticated');
 
     final orderData = {
       'id': orderId,
-      'userId': user?.uid ?? 'anonymous',
-      'userName': user?.displayName ?? 'Anonymous', // Fetch user name
-      'items': orderItems,
+      'items': _formatOrderItems(),
       'total': _calculateTotal(),
       'status': 'Pending',
-      'createdAt': Timestamp.now(),
+      'createdAt': firestore.Timestamp.now(),
       'phone': phone,
-      'deliveryMethod': selectedOption,
-      'location': selectedOption == 'Delivery' ? location : null, // Only for deliveries
+      'deliveryMethod': _selectedOption,
+      'location': _selectedOption == 'Delivery'
+          ? {
+              'address': _selectedAddress,
+              'coordinates': firestore.GeoPoint(
+                  _selectedLocation.latitude, _selectedLocation.longitude),
+            }
+          : null,
+      'userId': user.uid,
+      'userName': _userName ?? 'Anonymous',
     };
 
-    try {
-      await _firestore.collection('orders').doc(orderId).set(orderData);
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to save order: $e')),
-      );
-      rethrow;
-    }
+    await _firestore.collection('orders').doc(orderId).set(orderData);
   }
 
-  void _showOrderConfirmationDialog(BuildContext context) {
-    final notificationProvider =
-        Provider.of<NotificationProvider>(context, listen: false);
-    String orderSummary = _buildOrderSummaryString();
-    String phone = _formatPhone(_phoneController.text);
-    String location =
-        selectedOption == 'Delivery' ? _locationController.text : "Take Away";
-    String orderId = DateTime.now().millisecondsSinceEpoch.toString();
+  List<Map<String, dynamic>> _formatOrderItems() {
+    return widget.cartItems.map((item) {
+      return {
+        'name': item['title']?.toString() ?? 'Unknown Item',
+        'image': item['image']?.toString() ?? '',
+        'price': (item['price'] as num?)?.toDouble() ?? 0.0,
+        'quantity': item['quantity'] as int? ?? 1,
+      };
+    }).toList();
+  }
 
-    notificationProvider.addNotification(
-      AppNotification(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        title: 'Order #$orderId Confirmed',
-        body: 'Total: ${_formatPrice(_calculateTotal())}\nStatus: Pending',
-        timestamp: DateTime.now(),
-      ),
+  Future<void> _showOrderSuccessDialog(String orderId, String phone) async {
+    final notificationProvider = context.read<NotificationProvider>();
+    final user = FirebaseAuth.instance.currentUser;
+    final items = _formatOrderItems();
+    final total = _calculateTotal();
+    final location = _selectedOption == 'Delivery' ? _selectedAddress : 'Take Away';
+
+    final notification = AppNotification(
+      id: orderId,
+      title: 'Order #${orderId.substring(0, 6)} Confirmed',
+      body: 'Tap to view order details or cancel.',
+      items: items,
+      total: total,
+      location: location,
     );
+
+    // Save notification to Firestore
+    if (user != null) {
+      await _firestore
+          .collection('users')
+          .doc(user.uid)
+          .collection('notifications')
+          .doc(orderId)
+          .set(notification.toMap());
+    }
+
+    // Add to local provider
+    notificationProvider.addNotification(notification);
 
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Order Confirmed!'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.check_circle, color: Colors.green, size: 64),
-              const SizedBox(height: 16),
-              Text('Order #$orderId'),
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Icon(Icons.check_circle, color: Colors.green, size: 60),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Order #${orderId.substring(0, 8)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            Text('Total: ${_formatPrice(total)}'),
+            const SizedBox(height: 8),
+            Text('Phone: $phone'),
+            if (_selectedOption == 'Delivery') ...[
               const SizedBox(height: 8),
-              Text('Total: ${_formatPrice(_calculateTotal())}'),
-              const SizedBox(height: 8),
-              const Text('Status: Pending'),
+              Text('Address: $_selectedAddress'),
             ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () async {
-                try {
-                  await _saveOrderToFirestore(orderId, phone, location);
-                  widget.onOrderPlaced(
-                    "Order Confirmed!\n$orderSummary\n\nContact: $phone\n"
-                    "${selectedOption == 'Delivery' ? 'Delivery to: $location' : 'Take Away'}",
-                  );
-                  Navigator.pop(context);
-                  Navigator.pop(context);
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error placing order: $e')),
-                  );
-                }
-              },
-              child: const Text('OK'),
-            ),
           ],
-        );
-      },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const HomeScreen()),
+                (route) => false,
+              );
+            },
+            child: const Text('Done'),
+          ),
+        ],
+      ),
     );
   }
 
-  String _buildOrderSummaryString() {
-    StringBuffer summary = StringBuffer("Order Summary:\n");
-    for (var item in widget.cartItems) {
-      final itemName = item['title'] as String? ?? 'Item';
-      final price = item['price'] is int
-          ? (item['price'] as int).toDouble()
-          : item['price'] as double? ?? 0;
-      final quantity = item['quantity'] as int? ?? 1;
-      summary.writeln("• $itemName x$quantity - ${_formatPrice(price * quantity)}");
+  Future<void> _cancelOrder(String orderId) async {
+    try {
+      final orderDoc = await _firestore.collection('orders').doc(orderId).get();
+      if (!orderDoc.exists) {
+        _showErrorSnackbar('Order not found.');
+        return;
+      }
+      final status = orderDoc.data()?['status'] ?? 'Unknown';
+      if (status != 'Pending') {
+        _showErrorSnackbar('Cannot cancel order: Status is $status.');
+        return;
+      }
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        // Delete order and notification from Firestore
+        await _firestore.collection('orders').doc(orderId).delete();
+        await _firestore
+            .collection('users')
+            .doc(user.uid)
+            .collection('notifications')
+            .doc(orderId)
+            .delete();
+      }
+      // Remove from local provider
+      context.read<NotificationProvider>().deleteNotification(orderId);
+      _showErrorSnackbar('Order cancelled successfully.');
+    } catch (e) {
+      _showErrorSnackbar('Failed to cancel order: $e');
     }
-    summary.writeln("\nTotal: ${_formatPrice(_calculateTotal())}");
-    return summary.toString();
-  }
-
-  String _formatPhone(String phone) {
-    if (phone.startsWith('256') && phone.length == 12) {
-      return '+${phone.substring(0, 3)} ${phone.substring(3, 6)} ${phone.substring(6, 9)} ${phone.substring(9)}';
-    }
-    return phone;
   }
 
   double _calculateTotal() {
-    double total = 0;
-    for (var item in widget.cartItems) {
-      final price = item['price'] is int
-          ? (item['price'] as int).toDouble()
-          : item['price'] as double? ?? 0;
+    return widget.cartItems.fold(0.0, (sum, item) {
+      final price = (item['price'] as num?)?.toDouble() ?? 0.0;
       final quantity = item['quantity'] as int? ?? 1;
-      total += price * quantity;
-    }
-    return total;
+      return sum + (price * quantity);
+    });
   }
 
-  String _formatPrice(double price) {
-    return "UGX ${price.toStringAsFixed(0)}";
+  String _formatPrice(double price) => 'UGX ${price.toStringAsFixed(0)}';
+
+  String _formatPhone(String phone) {
+    phone = phone.replaceAll(RegExp(r'\D'), '');
+    if (phone.length == 9) return '+256 $phone';
+    if (phone.length == 12) return '+${phone.substring(0, 3)} ${phone.substring(3)}';
+    return phone;
+  }
+
+  void _showErrorSnackbar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  Future<void> _searchPlaces(String query) async {
+    if (query.isEmpty) {
+      setState(() {
+        _placeSuggestions = [];
+        _isSearching = false;
+      });
+      return;
+    }
+
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+
+    _debounce = Timer(const Duration(milliseconds: 300), () async {
+      setState(() => _isSearching = true);
+
+      final lat = _selectedLocation.latitude;
+      final lng = _selectedLocation.longitude;
+      final url = Uri.parse(
+        'https://maps.googleapis.com/maps/api/place/autocomplete/json'
+        '?input=$query'
+        '&components=country:UG'
+        '&location=$lat,$lng'
+        '&radius=15000'
+        '&types=address|locality'
+        '&key=$_googleApiKey',
+      );
+
+      try {
+        final response = await http.get(url);
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body);
+          if (kDebugMode) {
+            print('Places API response: $data');
+          }
+          if (data['status'] == 'OK') {
+            setState(() {
+              _placeSuggestions = List<Map<String, dynamic>>.from(data['predictions']);
+              _isSearching = false;
+            });
+            if (kDebugMode) {
+              print('Suggestions: $_placeSuggestions');
+            }
+          } else {
+            _showErrorSnackbar('Failed to fetch places: ${data['status']}');
+            setState(() => _isSearching = false);
+          }
+        } else {
+          _showErrorSnackbar('Failed to fetch places: HTTP ${response.statusCode}');
+          setState(() => _isSearching = false);
+        }
+      } catch (e) {
+        _showErrorSnackbar('Error searching places: $e');
+        setState(() => _isSearching = false);
+        if (kDebugMode) {
+          print('Search error: $e');
+        }
+      }
+    });
+  }
+
+  Future<void> _selectPlace(String placeId) async {
+    final url = Uri.parse(
+      'https://maps.googleapis.com/maps/api/place/details/json'
+      '?place_id=$placeId'
+      '&fields=formatted_address,geometry,name'
+      '&key=$_googleApiKey',
+    );
+
+    try {
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (kDebugMode) {
+          print('Place details response: $data');
+        }
+        if (data['status'] == 'OK') {
+          final result = data['result'];
+          final lat = result['geometry']['location']['lat'];
+          final lng = result['geometry']['location']['lng'];
+          final address = result['formatted_address'];
+
+          setState(() {
+            _selectedLocation = LatLng(lat, lng);
+            _selectedAddress = address;
+            _placeSuggestions = [];
+            _searchController.clear();
+            _nearbyLocations = [];
+          });
+
+          await _mapController?.animateCamera(
+            CameraUpdate.newLatLngZoom(_selectedLocation, 16),
+          );
+          if (kDebugMode) {
+            print('Selected location: $_selectedLocation, Address: $_selectedAddress');
+          }
+
+          await _fetchNearbyLocations(_selectedLocation);
+        } else {
+          _showErrorSnackbar('Failed to get place details: ${data['status']}');
+        }
+      } else {
+        _showErrorSnackbar('Failed to get place details: HTTP ${response.statusCode}');
+      }
+    } catch (e) {
+      _showErrorSnackbar('Error fetching place details: $e');
+      if (kDebugMode) {
+        print('Place details error: $e');
+      }
+    }
+  }
+
+  Future<void> _fetchNearbyLocations(LatLng location) async {
+    if (_googleApiKey.isEmpty) {
+      _showErrorSnackbar('Google API key is missing');
+      return;
+    }
+
+    setState(() => _isFetchingNearby = true);
+
+    final url = Uri.parse(
+      'https://maps.googleapis.com/maps/api/place/nearbysearch/json'
+      '?location=${location.latitude},${location.longitude}'
+      '&radius=1000'
+      '&key=$_googleApiKey',
+    );
+
+    try {
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (kDebugMode) {
+          print('Nearby places API response: $data');
+        }
+        if (data['status'] == 'OK') {
+          setState(() {
+            _nearbyLocations = List<Map<String, dynamic>>.from(data['results']);
+          });
+        } else {
+          _showErrorSnackbar('Failed to fetch nearby places: ${data['status']}');
+          if (kDebugMode) {
+            print('Nearby places API error: ${data['status']}');
+          }
+        }
+      } else {
+        _showErrorSnackbar('Failed to fetch nearby places: HTTP ${response.statusCode}');
+      }
+    } catch (e) {
+      _showErrorSnackbar('Error fetching nearby locations: $e');
+      if (kDebugMode) {
+        print('Error fetching nearby locations: $e');
+      }
+    } finally {
+      setState(() => _isFetchingNearby = false);
+    }
+  }
+
+  IconData _getPlaceIcon(List<dynamic>? types) {
+    if (types == null) return Icons.place;
+
+    if (types.contains('restaurant') || types.contains('food')) {
+      return Icons.restaurant;
+    } else if (types.contains('store') || types.contains('shopping_mall')) {
+      return Icons.shopping_bag;
+    } else if (types.contains('school') || types.contains('university')) {
+      return Icons.school;
+    } else if (types.contains('hospital') || types.contains('health')) {
+      return Icons.local_hospital;
+    }
+    return Icons.place;
   }
 
   @override
   void dispose() {
-    _locationController.dispose();
     _phoneController.dispose();
+    _searchController.dispose();
+    _mapController?.dispose();
+    _debounce?.cancel();
     super.dispose();
   }
 
@@ -252,202 +496,422 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        title: const Text(
-          'Checkout',
-          style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
-        ),
-        centerTitle: true,
+        title: const Text('Checkout'),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            children: [
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 5,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _buildStepCircle(label: 'Method', isActive: currentStep >= 0),
-                    _buildStepLine(isActive: currentStep >= 1),
-                    _buildStepCircle(label: 'Review', isActive: currentStep >= 1),
-                    _buildStepLine(isActive: currentStep >= 2),
-                    _buildStepCircle(label: 'Confirm', isActive: currentStep >= 2),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  children: [
-                    Text(
-                      _getTitleForStep(currentStep),
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 16),
-                    if (currentStep == 0) ...[
-                      _buildOptionCard(
-                        isSelected: selectedOption == "Take Away",
-                        imagePath: takeAwayImage,
-                        label: 'Take Away',
-                        onTap: () => setState(() => selectedOption = "Take Away"),
-                      ),
-                      const SizedBox(height: 16),
-                      _buildOptionCard(
-                        isSelected: selectedOption == "Delivery",
-                        imagePath: deliveryImage,
-                        label: 'Delivery',
-                        onTap: () => setState(() => selectedOption = "Delivery"),
-                      ),
-                    ] else if (currentStep == 1) ...[
-                      _buildOrderSummary(),
-                    ] else if (currentStep == 2) ...[
-                      _buildOrderSummary(),
-                      const SizedBox(height: 24),
-                      Form(
-                        key: _formKey,
-                        child: _buildContactInfoSection(),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      bottomNavigationBar: Container(
-        padding: const EdgeInsets.all(16),
-        child: ElevatedButton(
-          onPressed: onConfirmPressed,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color.fromARGB(255, 245, 244, 243),
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          ),
-          child: Text(
-            _getButtonTextForStep(currentStep),
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildContactInfoSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Contact Information',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5, offset: const Offset(0, 2)),
-            ],
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                TextFormField(
-                  controller: _phoneController,
-                  keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(
-                    labelText: 'Phone Number',
-                    prefixText: '+256 ',
-                    icon: Icon(Icons.phone),
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            showDialog(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Cancel Checkout?'),
+                content: const Text('Your order will not be saved.'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Stay'),
                   ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Required for order updates';
-                    }
-                    if (!RegExp(r'^[0-9]{9,10}$').hasMatch(value)) {
-                      return 'Enter a valid Ugandan number';
-                    }
-                    return null;
-                  },
-                ),
-                if (selectedOption == 'Delivery') ...[
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _locationController,
-                    decoration: const InputDecoration(
-                      labelText: 'Delivery Address',
-                      icon: Icon(Icons.location_on),
-                      hintText: 'Building, Street, Neighborhood',
-                    ),
-                    validator: (value) {
-                      if (selectedOption == 'Delivery' && (value == null || value.isEmpty)) {
-                        return 'Please enter delivery address';
-                      }
-                      return null;
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      Navigator.pop(context);
                     },
+                    child: const Text('Leave'),
                   ),
                 ],
-              ],
+              ),
+            );
+          },
+        ),
+      ),
+      body: Stepper(
+        currentStep: _currentStep,
+        onStepContinue: _handleStepContinue,
+        onStepCancel: () {
+          if (_currentStep > 0) {
+            setState(() => _currentStep--);
+          }
+        },
+        steps: [
+          _buildMethodStep(),
+          _buildReviewStep(),
+          _buildConfirmStep(),
+        ],
+        controlsBuilder: (context, details) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 16),
+            child: ElevatedButton(
+              onPressed: details.onStepContinue,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange[800],
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: Text(
+                _currentStep == 2 ? 'PLACE ORDER' : 'CONTINUE',
+                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+              ),
             ),
-          ),
-        ),
-      ],
+          );
+        },
+      ),
     );
   }
 
-  Widget _buildStepCircle({required String label, required bool isActive}) {
-    return Column(
-      children: [
-        Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: isActive ? const Color(0xFFFFC107) : Colors.grey.shade300,
+  Step _buildMethodStep() {
+    return Step(
+      title: const Text('Delivery Method'),
+      content: Column(
+        children: [
+          _buildOptionCard(
+            isSelected: _selectedOption == 'Take Away',
+            imagePath: _takeAwayImage,
+            label: 'Take Away',
+            onTap: () => setState(() => _selectedOption = 'Take Away'),
           ),
-          child: Center(
-            child: Icon(Icons.check, size: 20, color: isActive ? Colors.black : Colors.white),
+          const SizedBox(height: 16),
+          _buildOptionCard(
+            isSelected: _selectedOption == 'Delivery',
+            imagePath: _deliveryImage,
+            label: 'Delivery',
+            onTap: () => setState(() => _selectedOption = 'Delivery'),
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: isActive ? Colors.black : Colors.grey,
-            fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  Widget _buildStepLine({required bool isActive}) {
-    return Container(
-      width: 40,
-      height: 2,
-      color: isActive ? const Color(0xFFFFC107) : Colors.grey.shade300,
+  Step _buildReviewStep() {
+    return Step(
+      title: const Text('Review Order'),
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Order Summary', style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          ...widget.cartItems.map((item) {
+            final price = (item['price'] as num?)?.toDouble() ?? 0.0;
+            final quantity = item['quantity'] as int? ?? 1;
+            final imageUrl = item['image']?.toString() ?? 'https://via.placeholder.com/150';
+            return Card(
+              elevation: 1,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(
+                        imageUrl,
+                        width: 60,
+                        height: 60,
+                        fit: BoxFit.cover,
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return Container(
+                            width: 60,
+                            height: 60,
+                            color: Colors.grey[200],
+                            child: const Center(child: CircularProgressIndicator()),
+                          );
+                        },
+                        errorBuilder: (context, error, stackTrace) {
+                          if (kDebugMode) {
+                            print('Checkout item image error for $imageUrl: $error');
+                          }
+                          return Container(
+                            width: 60,
+                            height: 60,
+                            color: Colors.grey[200],
+                            child: const Icon(Icons.fastfood, color: Colors.grey),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${item['title']} x$quantity',
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _formatPrice(price * quantity),
+                            style: TextStyle(color: Colors.green[700], fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+          const Divider(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('TOTAL:', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text(
+                _formatPrice(_calculateTotal()),
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
+  }
+
+  Step _buildConfirmStep() {
+    return Step(
+      title: const Text('Confirm Details'),
+      content: Directionality(
+        textDirection: TextDirection.ltr,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextFormField(
+                controller: _phoneController,
+                decoration: const InputDecoration(
+                  labelText: 'Phone Number',
+                  prefixText: '+256 ',
+                ),
+                keyboardType: TextInputType.phone,
+                textDirection: TextDirection.ltr,
+                textAlign: TextAlign.start,
+                validator: (value) {
+                  if (value == null || value.isEmpty) return 'Required';
+                  if (!RegExp(r'^\d{9}$').hasMatch(value)) {
+                    return 'Enter valid 9-digit number';
+                  }
+                  return null;
+                },
+              ),
+              if (_selectedOption == 'Delivery') ...[
+                const SizedBox(height: 16),
+                const Text(
+                  'Select Delivery Address',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                if (kIsWeb)
+                  Directionality(
+                    textDirection: TextDirection.ltr,
+                    child: TextFormField(
+                      controller: _searchController,
+                      decoration: const InputDecoration(
+                        labelText: 'Delivery Address',
+                        hintText: 'Enter your delivery address',
+                      ),
+                      textDirection: TextDirection.ltr,
+                      textAlign: TextAlign.start,
+                      onChanged: (value) {
+                        setState(() => _selectedAddress = value);
+                      },
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Enter delivery address';
+                        }
+                        return null;
+                      },
+                    ),
+                  )
+                else ...[
+                  TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      labelText: 'Search Address in Kampala (e.g., Kireka)',
+                      suffixIcon: _isSearching
+                          ? const CircularProgressIndicator()
+                          : IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() => _placeSuggestions = []);
+                              },
+                            ),
+                    ),
+                    textDirection: TextDirection.ltr,
+                    textAlign: TextAlign.start,
+                    onChanged: (value) => _searchPlaces(value),
+                  ),
+                  if (_placeSuggestions.isNotEmpty)
+                    Container(
+                      constraints: const BoxConstraints(maxHeight: 200),
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: _placeSuggestions.length,
+                        itemBuilder: (context, index) {
+                          final place = _placeSuggestions[index];
+                          return ListTile(
+                            title: Text(
+                              place['structured_formatting']?['main_text'] ?? place['description'] ?? 'Unknown',
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            subtitle: Text(
+                              place['structured_formatting']?['secondary_text'] ?? 'No additional info',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            onTap: () => _selectPlace(place['place_id']),
+                          );
+                        },
+                      ),
+                    )
+                  else if (!_isSearching && _searchController.text.isNotEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(8.0),
+                      child: Text(
+                        'No suggestions found. Try a different search.',
+                        style: TextStyle(color: Colors.red),
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+                  Container(
+                    height: 300,
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: _isMapReady
+                        ? GoogleMap(
+                            initialCameraPosition: CameraPosition(
+                              target: _selectedLocation,
+                              zoom: 12,
+                            ),
+                            onMapCreated: (controller) {
+                              _mapController = controller;
+                              controller.animateCamera(
+                                CameraUpdate.newLatLngZoom(_selectedLocation, 12),
+                              );
+                            },
+                            markers: {
+                              Marker(
+                                markerId: const MarkerId('delivery_spot'),
+                                position: _selectedLocation,
+                                infoWindow: InfoWindow(
+                                  title: _selectedAddress ?? 'Delivery Spot',
+                                ),
+                              ),
+                            },
+                            onTap: (latLng) {
+                              setState(() {
+                                _selectedLocation = latLng;
+                                _selectedAddress = 'Custom Location';
+                                _nearbyLocations = [];
+                              });
+                              _getAddressFromLatLng(latLng);
+                            },
+                          )
+                        : const Center(child: CircularProgressIndicator()),
+                  ),
+                  if (_selectedAddress != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Selected: $_selectedAddress',
+                      style: const TextStyle(fontSize: 14, color: Colors.green),
+                      textDirection: TextDirection.ltr,
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Nearby Locations:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    _isFetchingNearby
+                        ? const Center(child: CircularProgressIndicator())
+                        : _nearbyLocations.isEmpty
+                            ? const Text('No nearby locations found')
+                            : Container(
+                                height: 120,
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey[300]!),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: ListView.builder(
+                                  scrollDirection: Axis.horizontal,
+                                  itemCount: _nearbyLocations.length,
+                                  itemBuilder: (context, index) {
+                                    final place = _nearbyLocations[index];
+                                    return Padding(
+                                      padding: const EdgeInsets.all(8.0),
+                                      child: GestureDetector(
+                                        onTap: () {
+                                          final lat = place['geometry']['location']['lat'];
+                                          final lng = place['geometry']['location']['lng'];
+                                          setState(() {
+                                            _selectedLocation = LatLng(lat, lng);
+                                            _selectedAddress = place['vicinity'] ?? place['name'];
+                                            _nearbyLocations = [];
+                                          });
+                                          _mapController?.animateCamera(
+                                            CameraUpdate.newLatLngZoom(_selectedLocation, 16),
+                                          );
+                                          _fetchNearbyLocations(_selectedLocation);
+                                        },
+                                        child: Chip(
+                                          avatar: Icon(
+                                            _getPlaceIcon(place['types']),
+                                            size: 20,
+                                          ),
+                                          label: Text(place['name'] ?? 'Unknown'),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                  ],
+                ],
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _getAddressFromLatLng(LatLng latLng) async {
+    final url = Uri.parse(
+      'https://maps.googleapis.com/maps/api/geocode/json'
+      '?latlng=${latLng.latitude},${latLng.longitude}'
+      '&key=$_googleApiKey',
+    );
+
+    try {
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (kDebugMode) {
+          print('Geocode response: $data');
+        }
+        if (data['status'] == 'OK') {
+          setState(() {
+            _selectedAddress = data['results'][0]['formatted_address'];
+            _selectedLocation = latLng;
+          });
+          await _mapController?.animateCamera(
+            CameraUpdate.newLatLngZoom(_selectedLocation, 16),
+          );
+          await _fetchNearbyLocations(_selectedLocation);
+        } else {
+          _showErrorSnackbar('Failed to get address: ${data['status']}');
+        }
+      } else {
+        _showErrorSnackbar('Failed to get address: HTTP ${response.statusCode}');
+      }
+    } catch (e) {
+      _showErrorSnackbar('Error fetching address: $e');
+      if (kDebugMode) {
+        print('Geocode error: $e');
+      }
+    }
   }
 
   Widget _buildOptionCard({
@@ -456,99 +920,42 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     required String label,
     required VoidCallback onTap,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5, offset: const Offset(0, 2)),
-          ],
-          border: isSelected ? Border.all(color: const Color.fromARGB(255, 255, 106, 7), width: 2) : null,
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                image: DecorationImage(image: AssetImage(imagePath), fit: BoxFit.cover),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(child: Text(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600))),
-            if (isSelected) const Icon(Icons.check_circle, color: Color(0xFFFFC107)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildOrderSummary() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5, offset: const Offset(0, 2)),
-        ],
+        side: isSelected ? const BorderSide(color: Colors.orange, width: 2) : BorderSide.none,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Your Order', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
-          ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: widget.cartItems.length,
-            separatorBuilder: (context, index) => const Divider(height: 20),
-            itemBuilder: (context, index) {
-              final item = widget.cartItems[index];
-              final itemName = item['title'] as String? ?? 'Item';
-              final price = item['price'] is int ? (item['price'] as int).toDouble() : item['price'] as double? ?? 0;
-              final quantity = item['quantity'] as int? ?? 1;
-              return Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('$itemName x$quantity', style: const TextStyle(fontSize: 16)),
-                  Text(_formatPrice(price * quantity), style: const TextStyle(fontSize: 16)),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 12),
-          const Divider(height: 30),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
             children: [
-              const Text('Total', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              Text(_formatPrice(_calculateTotal()), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.asset(
+                  imagePath,
+                  width: 80,
+                  height: 80,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    if (kDebugMode) {
+                      print('Option card image error for $imagePath: $error');
+                    }
+                    return const Icon(Icons.error, color: Colors.grey);
+                  },
+                ),
+              ),
+              const SizedBox(width: 16),
+              Text(label, style: const TextStyle(fontSize: 16)),
+              const Spacer(),
+              if (isSelected) const Icon(Icons.check_circle, color: Colors.green),
             ],
           ),
-        ],
+        ),
       ),
     );
-  }
-
-  String _getTitleForStep(int step) {
-    switch (step) {
-      case 0:
-        return 'Select Order Method';
-      case 1:
-        return 'Review Your Order';
-      case 2:
-        return 'Confirm Details';
-      default:
-        return '';
-    }
-  }
-
-  String _getButtonTextForStep(int step) {
-    return step < 2 ? 'Continue' : 'Place Order';
   }
 }

@@ -1,9 +1,17 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart' hide Order;
+import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:front_end/screens/login_screen.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:carousel_slider/carousel_slider.dart';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
+import 'package:image_picker_web/image_picker_web.dart';
+import 'package:universal_html/html.dart' as html;
 import '../providers/auth_provider.dart';
 import '../providers/admin_user_provider.dart';
 import '../providers/product_provider.dart';
@@ -13,6 +21,7 @@ import '../models/product_model.dart';
 import '../models/order_model.dart';
 import 'add_product_screen.dart';
 import 'order_detail_screen.dart';
+import 'carousel_management_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -34,10 +43,16 @@ class _AdminDashboardState extends State<AdminDashboard> {
   String _userSearchQuery = '';
   int _selectedIndex = 0;
 
+  final _formKey = GlobalKey<FormState>();
+  final _labelController = TextEditingController();
+  bool _isVisible = true;
+  bool _isUploading = false;
+  final String _imgbbApiKey = 'a76d491b3f50093fddaf42dcfaedc1c6';
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadInitialData());
+    _loadInitialData();
   }
 
   Future<void> _loadInitialData() async {
@@ -45,6 +60,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       await Future.wait([
         Provider.of<AdminUserProvider>(context, listen: false).fetchAllUsers(),
         Provider.of<ProductProvider>(context, listen: false).fetchProducts(),
+        Provider.of<OrderProvider>(context, listen: false).fetchOrders(),
       ]);
     } catch (e) {
       if (mounted) {
@@ -62,48 +78,163 @@ class _AdminDashboardState extends State<AdminDashboard> {
     Navigator.pop(context);
   }
 
+  Future<String?> _uploadImageToImgBBMobile(File imageFile) async {
+    final uri = Uri.parse('https://api.imgbb.com/1/upload?key=$_imgbbApiKey');
+    final request = http.MultipartRequest('POST', uri)
+      ..files.add(await http.MultipartFile.fromPath('image', imageFile.path));
+
+    final response = await request.send();
+    final responseData = await response.stream.bytesToString();
+    final jsonData = jsonDecode(responseData);
+
+    if (response.statusCode != 200 || !jsonData['success']) {
+      throw Exception('Failed to upload image: ${jsonData['error']?['message'] ?? 'Unknown error'}');
+    }
+
+    return jsonData['data']['url'];
+  }
+
+  Future<String?> _uploadImageToImgBBWeb(html.File imageFile) async {
+    final uri = Uri.parse('https://api.imgbb.com/1/upload?key=$_imgbbApiKey');
+    final reader = html.FileReader();
+    reader.readAsArrayBuffer(imageFile);
+    await reader.onLoad.first;
+
+    final bytes = reader.result as List<int>;
+    final base64Image = base64Encode(bytes);
+
+    final response = await http.post(
+      uri,
+      body: {'image': base64Image},
+    );
+
+    final jsonData = jsonDecode(response.body);
+    if (response.statusCode != 200 || !jsonData['success']) {
+      throw Exception('Failed to upload image: ${jsonData['error']?['message'] ?? 'Unknown error'}');
+    }
+
+    return jsonData['data']['url'];
+  }
+
+  Future<void> _uploadCarouselImage() async {
+    if (_formKey.currentState?.validate() ?? false) {
+      try {
+        setState(() {
+          _isUploading = true;
+        });
+
+        String? imageUrl;
+        if (kIsWeb) {
+          final html.File? pickedFile = await ImagePickerWeb.getImageAsFile();
+          if (pickedFile != null) {
+            final fileSizeMB = pickedFile.size / (1024 * 1024);
+            if (fileSizeMB > 32) {
+              throw Exception('File size exceeds 32MB limit');
+            }
+            imageUrl = await _uploadImageToImgBBWeb(pickedFile);
+          }
+        } else {
+          final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
+          if (pickedFile != null) {
+            File file = File(pickedFile.path);
+            final fileSizeMB = file.lengthSync() / (1024 * 1024);
+            if (fileSizeMB > 32) {
+              throw Exception('File size exceeds 32MB limit');
+            }
+            imageUrl = await _uploadImageToImgBBMobile(file);
+          }
+        }
+
+        if (imageUrl != null) {
+          await firestore.FirebaseFirestore.instance.collection('carousel_items').add({
+            'imageUrl': imageUrl,
+            'label': _labelController.text,
+            'isVisible': _isVisible,
+            'createdAt': firestore.FieldValue.serverTimestamp(),
+          });
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Carousel image added: ${_labelController.text}')),
+          );
+
+          _labelController.clear();
+          setState(() {
+            _isVisible = true;
+          });
+        } else {
+          throw Exception('No image selected');
+        }
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to upload image: $e')),
+        );
+      } finally {
+        setState(() {
+          _isUploading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _labelController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Dashboard'),
+        title: const Text('Admin Dashboard'),
+        backgroundColor: Colors.white,
+        elevation: 2,
+        centerTitle: true,
       ),
       drawer: Drawer(
         child: ListView(
           padding: EdgeInsets.zero,
           children: [
-            const DrawerHeader(
-              decoration: BoxDecoration(color: Color.fromARGB(255, 124, 64, 235)),
-              child: Text('Admin Menu',
-                  style: TextStyle(color: Colors.white, fontSize: 24)),
+            DrawerHeader(
+              decoration: const BoxDecoration(color: Color(0xFFFFC107)),
+              child: Text(
+                'Admin Menu',
+                style: TextStyle(color: Colors.black, fontSize: 24),
+              ),
             ),
             ListTile(
-              leading: const Icon(Icons.dashboard),
+              leading: const Icon(Icons.dashboard, color: Colors.black),
               title: const Text('Overview'),
               selected: _selectedIndex == 0,
               onTap: () => _onDrawerItemSelected(0),
             ),
             ListTile(
-              leading: const Icon(Icons.people),
+              leading: const Icon(Icons.people, color: Colors.black),
               title: const Text('Users'),
               selected: _selectedIndex == 1,
               onTap: () => _onDrawerItemSelected(1),
             ),
             ListTile(
-              leading: const Icon(Icons.shopping_bag),
+              leading: const Icon(Icons.shopping_bag, color: Colors.black),
               title: const Text('Orders'),
               selected: _selectedIndex == 2,
               onTap: () => _onDrawerItemSelected(2),
             ),
             ListTile(
-              leading: const Icon(Icons.fastfood),
+              leading: const Icon(Icons.fastfood, color: Colors.black),
               title: const Text('Products'),
               selected: _selectedIndex == 3,
               onTap: () => _onDrawerItemSelected(3),
             ),
+            ListTile(
+              leading: const Icon(Icons.slideshow, color: Colors.black),
+              title: const Text('Carousel'),
+              selected: _selectedIndex == 4,
+              onTap: () => _onDrawerItemSelected(4),
+            ),
             const Divider(),
             ListTile(
-              leading: const Icon(Icons.refresh),
+              leading: const Icon(Icons.refresh, color: Colors.black),
               title: const Text('Refresh Data'),
               onTap: () {
                 Navigator.pop(context);
@@ -111,7 +242,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.logout),
+              leading: const Icon(Icons.logout, color: Colors.red),
               title: const Text('Logout'),
               onTap: () {
                 Navigator.pop(context);
@@ -125,7 +256,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
       floatingActionButton: _selectedIndex == 3
           ? FloatingActionButton(
               onPressed: () => _navigateToAddProduct(context),
-              child: const Icon(Icons.add),
+              backgroundColor: const Color(0xFFFFC107),
+              child: const Icon(Icons.add, color: Colors.black),
             )
           : null,
     );
@@ -141,55 +273,63 @@ class _AdminDashboardState extends State<AdminDashboard> {
         return _buildOrdersTab();
       case 3:
         return _buildProductsTab();
+      case 4:
+        return _buildCarouselTab();
       default:
         return _buildOverviewTab();
     }
   }
 
   Widget _buildOverviewTab() {
-    return FutureBuilder(
-      future: _fetchDashboardStats(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
-        }
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          const AdminCarousel(),
+          const SizedBox(height: 24),
+          FutureBuilder<Map<String, dynamic>>(
+            future: _fetchDashboardStats(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return Center(child: Text('Error: ${snapshot.error}'));
+              }
 
-        final stats = snapshot.data ?? {};
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              GridView.count(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisCount: 2,
-                childAspectRatio: 1.2,
-                crossAxisSpacing: 15,
-                mainAxisSpacing: 15,
+              final stats = snapshot.data ?? {};
+              return Column(
                 children: [
-                  _buildStatCard('Total Users',
-                      stats['users']?.toString() ?? '0', Icons.people),
-                  _buildStatCard('Total Orders',
-                      stats['orders']?.toString() ?? '0', Icons.shopping_bag),
-                  _buildStatCard('Products',
-                      stats['products']?.toString() ?? '0', Icons.fastfood),
-                  _buildStatCard(
-                      'Revenue',
-                      'UGX ${stats['revenue']?.toStringAsFixed(0) ?? '0'}',
-                      Icons.attach_money),
+                  GridView.count(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisCount: 2,
+                    childAspectRatio: 1.2,
+                    crossAxisSpacing: 15,
+                    mainAxisSpacing: 15,
+                    children: [
+                      _buildStatCard('Total Users',
+                          stats['users']?.toString() ?? '0', Icons.people),
+                      _buildStatCard('Total Orders',
+                          stats['orders']?.toString() ?? '0', Icons.shopping_bag),
+                      _buildStatCard('Products',
+                          stats['products']?.toString() ?? '0', Icons.fastfood),
+                      _buildStatCard(
+                          'Revenue',
+                          'UGX ${stats['revenue']?.toStringAsFixed(0) ?? '0'}',
+                          Icons.attach_money),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  _buildRecentSection('Recent Users', _buildRecentUsers()),
+                  const SizedBox(height: 24),
+                  _buildRecentSection('Recent Orders', _buildRecentOrders()),
                 ],
-              ),
-              const SizedBox(height: 24),
-              _buildRecentSection('Recent Users', _buildRecentUsers()),
-              const SizedBox(height: 24),
-              _buildRecentSection('Recent Orders', _buildRecentOrders()),
-            ],
+              );
+            },
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 
@@ -207,15 +347,16 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
         final filteredUsers = _userSearchQuery.isEmpty
             ? users
-            : users.where((user) {
-                final emailMatch =
-                    user.email.toLowerCase().contains(_userSearchQuery.toLowerCase());
-                final nameMatch = user.name
-                        ?.toLowerCase()
-                        .contains(_userSearchQuery.toLowerCase()) ??
-                    false;
-                return emailMatch || nameMatch;
-              }).toList();
+            : users
+                .where((user) =>
+                    user.email
+                        .toLowerCase()
+                        .contains(_userSearchQuery.toLowerCase()) ||
+                    (user.name
+                            ?.toLowerCase()
+                            .contains(_userSearchQuery.toLowerCase()) ??
+                        false))
+                .toList();
 
         return Column(
           children: [
@@ -229,7 +370,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
-                onChanged: (value) => setState(() => _userSearchQuery = value),
+                onChanged: (value) {
+                  setState(() => _userSearchQuery = value);
+                },
               ),
             ),
             Expanded(
@@ -249,25 +392,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 
   Widget _buildOrdersTab() {
-    return StreamBuilder<List<Order>>(
-      stream: Provider.of<OrderProvider>(context, listen: false).getOrdersStream(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
-        }
-
-        final orders = snapshot.data ?? [];
-        if (orders.isEmpty) {
-          return const Center(child: Text('No orders found'));
-        }
-
-        final filteredOrders = _currentOrderFilter == 'All'
-            ? orders
-            : orders.where((o) => o.status == _currentOrderFilter).toList();
-
+    return Consumer<OrderProvider>(
+      builder: (context, orderProvider, _) {
         return Column(
           children: [
             SizedBox(
@@ -281,8 +407,16 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     child: ChoiceChip(
                       label: Text(status),
                       selected: _currentOrderFilter == status,
-                      onSelected: (selected) => setState(() =>
-                          _currentOrderFilter = selected ? status : 'All'),
+                      selectedColor: const Color(0xFFFFC107),
+                      labelStyle: TextStyle(
+                        color: _currentOrderFilter == status
+                            ? Colors.black
+                            : Colors.grey,
+                      ),
+                      onSelected: (selected) {
+                        setState(() =>
+                            _currentOrderFilter = selected ? status : 'All');
+                      },
                     ),
                   );
                 }).toList(),
@@ -290,16 +424,38 @@ class _AdminDashboardState extends State<AdminDashboard> {
             ),
             const SizedBox(height: 8),
             Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: filteredOrders.length,
-                itemBuilder: (context, index) => OrderListItem(
-                  order: filteredOrders[index],
-                  onStatusChange: (newStatus) {
-                    Provider.of<OrderProvider>(context, listen: false)
-                        .updateOrderStatus(filteredOrders[index].id, newStatus);
-                  },
-                ),
+              child: Builder(
+                builder: (context) {
+                  if (orderProvider.isLoading) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (orderProvider.error != null) {
+                    return Center(child: Text('Error: ${orderProvider.error}'));
+                  }
+
+                  final orders = orderProvider.orders ?? [];
+                  if (orders.isEmpty) {
+                    return const Center(child: Text('No orders found'));
+                  }
+
+                  final filteredOrders = _currentOrderFilter == 'All'
+                      ? orders
+                      : orders
+                          .where((o) => o.status == _currentOrderFilter)
+                          .toList();
+
+                  return ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: filteredOrders.length,
+                    itemBuilder: (context, index) => OrderListItem(
+                      order: filteredOrders[index],
+                      onStatusChange: (newStatus) {
+                        orderProvider.updateOrderStatus(
+                            filteredOrders[index].id, newStatus);
+                      },
+                    ),
+                  );
+                },
               ),
             ),
           ],
@@ -321,8 +477,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
         final filteredProducts = _productSearchQuery.isEmpty
             ? provider.products
             : provider.products
-                .where((p) =>
-                    p.name.toLowerCase().contains(_productSearchQuery.toLowerCase()))
+                .where((p) => p.name
+                    .toLowerCase()
+                    .contains(_productSearchQuery.toLowerCase()))
                 .toList();
 
         return Column(
@@ -337,8 +494,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
-                onChanged: (value) =>
-                    setState(() => _productSearchQuery = value),
+                onChanged: (value) {
+                  setState(() => _productSearchQuery = value);
+                },
               ),
             ),
             Expanded(
@@ -366,9 +524,166 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 
+  Widget _buildCarouselTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Add Carousel Image',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 10),
+          Card(
+            elevation: 2,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextFormField(
+                      controller: _labelController,
+                      decoration: const InputDecoration(
+                        labelText: 'Label',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Label is required';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    SwitchListTile(
+                      title: const Text('Visible'),
+                      value: _isVisible,
+                      onChanged: (value) {
+                        setState(() {
+                          _isVisible = value;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    ElevatedButton(
+                      onPressed: _isUploading ? null : _uploadCarouselImage,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFFC107),
+                        foregroundColor: Colors.black,
+                        padding:
+                            const EdgeInsets.symmetric(vertical: 15, horizontal: 20),
+                      ),
+                      child: Text(_isUploading ? 'Uploading...' : 'Upload Image'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Recent Carousel Items',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => const CarouselManagementScreen()),
+                  );
+                },
+                child: const Text(
+                  'Manage All',
+                  style: TextStyle(color: Color(0xFFFFC107)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _buildCarouselPreview(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCarouselPreview() {
+    return StreamBuilder<firestore.QuerySnapshot>(
+      stream: firestore.FirebaseFirestore.instance
+          .collection('carousel_items')
+          .orderBy('createdAt', descending: true)
+          .limit(5)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (snapshot.hasError) {
+          return Center(child: Text('Error: ${snapshot.error}'));
+        }
+
+        var items = snapshot.data?.docs ?? [];
+        if (items.isEmpty) {
+          return const Center(child: Text('No carousel items added.'));
+        }
+
+        return SizedBox(
+          height: 100,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: items.length,
+            itemBuilder: (context, index) {
+              var item = items[index];
+              return Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: Column(
+                  children: [
+                    SizedBox(
+                      width: 80,
+                      height: 60,
+                      child: Image.network(
+                        item['imageUrl'],
+                        fit: BoxFit.cover,
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return const Center(child: CircularProgressIndicator());
+                        },
+                        errorBuilder: (context, error, stackTrace) {
+                          if (kDebugMode) {
+                            print('Carousel image error for ${item['imageUrl']}: $error');
+                          }
+                          return const Icon(Icons.image_not_supported, size: 50);
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      item['label'],
+                      style: const TextStyle(fontSize: 12),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildStatCard(String title, String value, IconData icon) {
     return Card(
       elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -377,13 +692,22 @@ class _AdminDashboardState extends State<AdminDashboard> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Icon(icon, color: const Color.fromARGB(255, 238, 153, 27)),
-                Text(value,
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                Icon(icon, color: const Color(0xFFFFC107)),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 8),
-            Text(title, style: const TextStyle(color: Colors.grey)),
+            Text(
+              title,
+              style: TextStyle(color: Colors.grey[600]),
+            ),
           ],
         ),
       ),
@@ -394,10 +718,16 @@ class _AdminDashboardState extends State<AdminDashboard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        Text(
+          title,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
         const SizedBox(height: 8),
-        content,
+        Card(
+          elevation: 2,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          child: content,
+        ),
       ],
     );
   }
@@ -406,19 +736,26 @@ class _AdminDashboardState extends State<AdminDashboard> {
     return Consumer<AdminUserProvider>(
       builder: (context, provider, _) {
         final users = provider.users.take(5).toList();
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: Column(
-              children: users
-                  .map((user) => ListTile(
-                        leading: const CircleAvatar(child: Icon(Icons.person)),
-                        title: Text(user.name ?? 'No name'),
-                        subtitle: Text(user.email),
-                        trailing: Text(user.role),
-                      ))
-                  .toList(),
-            ),
+        if (users.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('No recent users'),
+          );
+        }
+        return Padding(
+          padding: const EdgeInsets.all(8),
+          child: Column(
+            children: users
+                .map((user) => ListTile(
+                      leading: const CircleAvatar(
+                        backgroundColor: Color(0xFFFFC107),
+                        child: Icon(Icons.person, color: Colors.black),
+                      ),
+                      title: Text(user.name),
+                      subtitle: Text(user.email),
+                      trailing: Text(user.role),
+                    ))
+                .toList(),
           ),
         );
       },
@@ -426,87 +763,89 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 
   Widget _buildRecentOrders() {
-    return StreamBuilder<List<Order>>(
-      stream: Provider.of<OrderProvider>(context, listen: false).getOrdersStream(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+    return Consumer<OrderProvider>(
+      builder: (context, provider, _) {
+        final orders = provider.orders?.take(5).toList() ?? [];
+        if (provider.isLoading) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
+        if (provider.error != null) {
+          return Center(child: Text('Error: ${provider.error}'));
         }
-
-        final orders = snapshot.data?.take(5).toList() ?? [];
         if (orders.isEmpty) {
-          return const Center(child: Text('No recent orders'));
+          return const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('No recent orders'),
+          );
         }
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: Column(
-              children: orders
-                  .map((order) => ExpansionTile(
-                        leading: const Icon(Icons.shopping_bag, color: Colors.blue),
-                        title: Text('Order #${order.id.substring(0, 8)}'),
-                        subtitle:
-                            Text('UGX ${order.total.toStringAsFixed(0)} - ${order.userName}'),
-                        trailing: Chip(
-                          label: Text(order.status),
-                          backgroundColor:
-                              _getStatusColor(order.status).withOpacity(0.2),
-                          labelStyle:
-                              TextStyle(color: _getStatusColor(order.status)),
+        return Padding(
+          padding: const EdgeInsets.all(8),
+          child: Column(
+            children: orders
+                .map((order) => ExpansionTile(
+                      leading: const Icon(
+                        Icons.shopping_bag,
+                        color: Color(0xFFFFC107),
+                      ),
+                      title: Text('Order #${order.id.substring(0, 8)}'),
+                      subtitle: Text(
+                        'UGX ${order.total.toStringAsFixed(0)} - ${order.userName}',
+                      ),
+                      trailing: Chip(
+                        label: Text(order.status),
+                        backgroundColor:
+                            _getStatusColor(order.status).withOpacity(0.2),
+                        labelStyle:
+                            TextStyle(color: _getStatusColor(order.status)),
+                      ),
+                      children: [
+                        ListTile(
+                          title: Text('Customer: ${order.userName}'),
+                          subtitle: Text('Contact: ${order.phone}'),
                         ),
-                        children: [
+                        if (order.location != null)
                           ListTile(
-                            title: Text('Contact: ${order.phone}'),
-                            subtitle: order.location != null
-                                ? Text('Delivery to: ${order.location}')
-                                : null,
+                            title: Text('Delivery to: ${order.location}'),
                           ),
-                          ...order.items
-                              .map((item) => ListTile(
-                                    leading: item.image.isNotEmpty
-                                        ? SizedBox(
-                                            width: 40,
-                                            height: 40,
-                                            child: Image.network(
-                                              item.image,
-                                              fit: BoxFit.cover,
-                                              loadingBuilder: (context, child,
-                                                  loadingProgress) {
-                                                if (loadingProgress == null) {
-                                                  return child;
-                                                }
-                                                return const Center(
-                                                    child:
-                                                        CircularProgressIndicator());
-                                              },
-                                              errorBuilder:
-                                                  (context, error, stackTrace) {
-                                                if (kDebugMode) {
-                                                  print(
-                                                      'Order item image error for ${item.image}: $error');
-                                                }
-                                                return const Icon(
-                                                    Icons.image_not_supported,
-                                                    size: 40);
-                                              },
-                                            ),
-                                          )
-                                        : const SizedBox(
-                                            width: 40,
-                                            height: 40,
-                                            child: Icon(Icons.image, size: 40)),
-                                    title: Text(item.name),
-                                    subtitle: Text(
-                                        'UGX ${item.price.toStringAsFixed(0)} x ${item.quantity}'),
-                                  ))
-                              .toList(),
-                        ],
-                      ))
-                  .toList(),
-            ),
+                        ...order.items.map((item) => ListTile(
+                              leading: item.image.isNotEmpty
+                                  ? SizedBox(
+                                      width: 40,
+                                      height: 40,
+                                      child: Image.network(
+                                        item.image,
+                                        fit: BoxFit.cover,
+                                        loadingBuilder:
+                                            (context, child, loadingProgress) {
+                                          if (loadingProgress == null) {
+                                            return child;
+                                          }
+                                          return const Center(
+                                              child: CircularProgressIndicator());
+                                        },
+                                        errorBuilder:
+                                            (context, error, stackTrace) {
+                                          if (kDebugMode) {
+                                            print(
+                                                'Order item image error for ${item.image}: $error');
+                                          }
+                                          return const Icon(
+                                              Icons.image_not_supported,
+                                              size: 40);
+                                        },
+                                      ),
+                                    )
+                                  : const SizedBox(
+                                      width: 40,
+                                      height: 40,
+                                      child: Icon(Icons.image, size: 40)),
+                              title: Text(item.name),
+                              subtitle: Text(
+                                  'UGX ${item.price.toStringAsFixed(0)} x ${item.quantity}'),
+                            )),
+                      ],
+                    ))
+                .toList(),
           ),
         );
       },
@@ -515,24 +854,19 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   Future<Map<String, dynamic>> _fetchDashboardStats() async {
     try {
-      final users =
-          await FirebaseFirestore.instance.collection('users').count().get();
-      final orders =
-          await FirebaseFirestore.instance.collection('orders').count().get();
-      final products =
-          await FirebaseFirestore.instance.collection('products').count().get();
-
-      final revenueSnapshot =
-          await FirebaseFirestore.instance.collection('orders').get();
-      final revenue = revenueSnapshot.docs.fold<double>(0, (sum, doc) {
-        return sum + (doc.data()['total'] as num).toDouble();
-      });
+      final usersSnapshot =
+          await firestore.FirebaseFirestore.instance.collection('users').get();
+      final productsSnapshot =
+          await firestore.FirebaseFirestore.instance.collection('products').get();
+      final ordersSnapshot =
+          await firestore.FirebaseFirestore.instance.collection('orders').get();
 
       return {
-        'users': users.count,
-        'orders': orders.count,
-        'products': products.count,
-        'revenue': revenue,
+        'users': usersSnapshot.docs.length,
+        'orders': ordersSnapshot.docs.length,
+        'products': productsSnapshot.docs.length,
+        'revenue': ordersSnapshot.docs.fold<double>(
+            0, (sum, doc) => sum + ((doc.data()['total'] as num?)?.toDouble() ?? 0)),
       };
     } catch (e) {
       throw Exception('Failed to load stats: $e');
@@ -560,7 +894,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
     if (confirmed == true && mounted) {
       await Provider.of<MyAuthProvider>(context, listen: false).logout();
-      Navigator.pushReplacementNamed(context, '/login');
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const LoginScreen()),
+      );
     }
   }
 
@@ -637,6 +974,96 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 }
 
+class AdminCarousel extends StatelessWidget {
+  const AdminCarousel({super.key});
+
+  double getViewportFraction(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    if (width < 600) return 0.85;
+    if (width < 1200) return 0.6;
+    return 0.4;
+  }
+
+  double getCarouselHeight(BuildContext context) {
+    final height = MediaQuery.of(context).size.height;
+    return height < 600 ? height * 0.3 : height * 0.4;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      child: StreamBuilder<firestore.QuerySnapshot>(
+        stream: firestore.FirebaseFirestore.instance
+            .collection('carousel_items')
+            .where('isVisible', isEqualTo: true)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return const Center(child: Text('Error loading carousel'));
+          }
+          final items = snapshot.data?.docs ?? [];
+          if (items.isEmpty) {
+            return const Center(child: Text('No carousel items'));
+          }
+          return CarouselSlider(
+            items: items.map((item) {
+              return Container(
+                margin: const EdgeInsets.all(6.0),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8.0),
+                  image: DecorationImage(
+                    image: NetworkImage(item['imageUrl']),
+                    fit: BoxFit.cover,
+                    onError: (exception, stackTrace) {
+                      if (kDebugMode) {
+                        print('Carousel image error for ${item['imageUrl']}: $exception');
+                      }
+                    },
+                  ),
+                ),
+                child: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: Container(
+                    color: Colors.black.withOpacity(0.5),
+                    padding: const EdgeInsets.all(8.0),
+                    child: Text(
+                      item['label'],
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16.0,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+            options: CarouselOptions(
+              height: getCarouselHeight(context),
+              aspectRatio: 16 / 9,
+              viewportFraction: getViewportFraction(context),
+              initialPage: 0,
+              enableInfiniteScroll: true,
+              reverse: false,
+              autoPlay: true,
+              autoPlayInterval: const Duration(seconds: 3),
+              autoPlayAnimationDuration: const Duration(milliseconds: 800),
+              autoPlayCurve: Curves.fastOutSlowIn,
+              enlargeCenterPage: true,
+              scrollDirection: Axis.horizontal,
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
 class UserListItem extends StatelessWidget {
   final UserModel user;
   final String? currentUserId;
@@ -646,10 +1073,15 @@ class UserListItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
-        leading: const CircleAvatar(child: Icon(Icons.person)),
-        title: Text(user.name ?? 'No name'),
+        leading: const CircleAvatar(
+          backgroundColor: Color(0xFFFFC107),
+          child: Icon(Icons.person, color: Colors.black),
+        ),
+        title: Text(user.name),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -660,16 +1092,16 @@ class UserListItem extends StatelessWidget {
         trailing: currentUserId != user.uid
             ? PopupMenuButton<String>(
                 onSelected: (value) => _handleUserAction(context, value, user),
-                itemBuilder: (context) => [
-                  const PopupMenuItem(
+                itemBuilder: (context) => const [
+                  PopupMenuItem(
                     value: 'make_admin',
                     child: Text('Make Admin'),
                   ),
-                  const PopupMenuItem(
+                  PopupMenuItem(
                     value: 'make_user',
                     child: Text('Make Regular User'),
                   ),
-                  const PopupMenuItem(
+                  PopupMenuItem(
                     value: 'delete',
                     child: Text('Delete', style: TextStyle(color: Colors.red)),
                   ),
@@ -723,7 +1155,7 @@ class UserListItem extends StatelessWidget {
       ),
     );
 
-    if (confirmed == true) {
+    if (confirmed == true && context.mounted) {
       try {
         await Provider.of<AdminUserProvider>(context, listen: false)
             .deleteUser(user.uid);
@@ -752,8 +1184,11 @@ class OrderListItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       margin: const EdgeInsets.only(bottom: 8),
       child: InkWell(
+        borderRadius: BorderRadius.circular(10),
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(
@@ -768,33 +1203,60 @@ class OrderListItem extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Order #${order.id.substring(0, 8)}',
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
-                  Text(DateFormat('MMM dd, yyyy').format(order.createdAt)),
+                  Text(
+                    'Order #${order.id.substring(0, 8)}',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    DateFormat('MMM dd, yyyy').format(order.createdAt),
+                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                  ),
                 ],
               ),
               const SizedBox(height: 8),
-              Text('Customer: ${order.userName}',
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              Text('Contact: ${order.phone}'),
+              Text(
+                'Customer: ${order.userName}',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Contact: ${order.phone}',
+                style: TextStyle(color: Colors.grey[700], fontSize: 14),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Method: ${order.deliveryMethod}',
+                style: TextStyle(color: Colors.grey[700], fontSize: 14),
+              ),
               if (order.location != null) ...[
-                const SizedBox(height: 8),
-                Text('Delivery to: ${order.location}'),
+                const SizedBox(height: 4),
+                Text(
+                  'Address: ${order.location}',
+                  style: TextStyle(color: Colors.grey[700], fontSize: 14),
+                ),
               ],
               const SizedBox(height: 8),
-              Text('Total: UGX ${order.total.toStringAsFixed(0)}',
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
+              Text(
+                'Total: UGX ${order.total.toStringAsFixed(0)}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green,
+                ),
+              ),
               const SizedBox(height: 8),
-              const Text('Items:', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text(
+                'Items:',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
               ...order.items.map((item) => Padding(
                     padding: const EdgeInsets.symmetric(vertical: 4),
                     child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         item.image.isNotEmpty
                             ? SizedBox(
-                                width: 50,
-                                height: 50,
+                                width: 40,
+                                height: 40,
                                 child: Image.network(
                                   item.image,
                                   fit: BoxFit.cover,
@@ -811,23 +1273,28 @@ class OrderListItem extends StatelessWidget {
                                     }
                                     return const Icon(
                                         Icons.image_not_supported,
-                                        size: 50);
+                                        size: 40);
                                   },
                                 ),
                               )
                             : const SizedBox(
-                                width: 50,
-                                height: 50,
-                                child: Icon(Icons.image, size: 50)),
+                                width: 40,
+                                height: 40,
+                                child: Icon(Icons.image, size: 40)),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(item.name, style: const TextStyle(fontSize: 16)),
                               Text(
-                                  'UGX ${item.price.toStringAsFixed(0)} x ${item.quantity}',
-                                  style: const TextStyle(color: Colors.grey)),
+                                item.name,
+                                style: const TextStyle(fontSize: 14),
+                              ),
+                              Text(
+                                'UGX ${item.price.toStringAsFixed(0)} x ${item.quantity}',
+                                style: TextStyle(
+                                    color: Colors.grey[600], fontSize: 12),
+                              ),
                             ],
                           ),
                         ),
@@ -846,7 +1313,10 @@ class OrderListItem extends StatelessWidget {
                     ),
                     child: Text(
                       order.status,
-                      style: TextStyle(color: _getStatusColor(order.status)),
+                      style: TextStyle(
+                        color: _getStatusColor(order.status),
+                        fontSize: 12,
+                      ),
                     ),
                   ),
                   if (order.status == 'Pending')
@@ -904,10 +1374,10 @@ class ProductCard extends StatelessWidget {
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         onTap: onEdit,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -924,39 +1394,35 @@ class ProductCard extends StatelessWidget {
     return AspectRatio(
       aspectRatio: 1,
       child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
         child: Container(
           color: Colors.grey[100],
-          child: _buildImageContent(),
+          child: Image.network(
+            product.imageUrl,
+            fit: BoxFit.cover,
+            loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) return child;
+              return Center(
+                child: CircularProgressIndicator(
+                  value: loadingProgress.expectedTotalBytes != null
+                      ? loadingProgress.cumulativeBytesLoaded /
+                          loadingProgress.expectedTotalBytes!
+                      : null,
+                ),
+              );
+            },
+            errorBuilder: (context, error, stackTrace) {
+              if (kDebugMode) {
+                print('ProductCard image error for ${product.imageUrl}: $error');
+              }
+              return Image.network(
+                'https://via.placeholder.com/150',
+                fit: BoxFit.cover,
+              );
+            },
+          ),
         ),
       ),
-    );
-  }
-
-  Widget _buildImageContent() {
-    return Image.network(
-      product.imageUrl,
-      fit: BoxFit.cover,
-      loadingBuilder: (context, child, loadingProgress) {
-        if (loadingProgress == null) return child;
-        return Center(
-          child: CircularProgressIndicator(
-            value: loadingProgress.expectedTotalBytes != null
-                ? loadingProgress.cumulativeBytesLoaded /
-                    loadingProgress.expectedTotalBytes!
-                : null,
-          ),
-        );
-      },
-      errorBuilder: (context, error, stackTrace) {
-        if (kDebugMode) {
-          print('Admin ProductCard image error for ${product.imageUrl}: $error');
-        }
-        return Image.network(
-          'https://via.placeholder.com/150',
-          fit: BoxFit.cover,
-        );
-      },
     );
   }
 
@@ -978,8 +1444,8 @@ class ProductCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             'UGX ${product.price.toStringAsFixed(0)}',
-            style: TextStyle(
-              color: Colors.green[700],
+            style: const TextStyle(
+              color: Color(0xFFFFC107),
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -1001,7 +1467,11 @@ class ProductCard extends StatelessWidget {
                     onPressed: onEdit,
                   ),
                   IconButton(
-                    icon: const Icon(Icons.delete, size: 20, color: Colors.red),
+                    icon: const Icon(
+                      Icons.delete,
+                      size: 20,
+                      color: Colors.red,
+                    ),
                     onPressed: onDelete,
                   ),
                 ],

@@ -2,7 +2,7 @@ plugins {
     id "com.android.application"
     id "kotlin-android"
     id "dev.flutter.flutter-gradle-plugin"
-    id 'com.google.gms.google-services'
+    id "com.google.gms.google-services"
 }
 
 def localProperties = new Properties()
@@ -13,7 +13,25 @@ if (localPropertiesFile.exists()) {
     }
 }
 
+def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
+if (flutterVersionCode == null) {
+    flutterVersionCode = '1'
+}
+
+def flutterVersionName = localProperties.getProperty('flutter.versionName')
+if (flutterVersionName == null) {
+    flutterVersionName = '1.0'
+}
+
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
+    compileSdkVersion 34
+    ndkVersion "25.2.9519653"
     namespace "com.sungura.app"
     compileSdkVersion flutter.compileSdkVersion
     ndkVersion flutter.ndkVersion
@@ -29,23 +47,35 @@ android {
 
     defaultConfig {
         applicationId "com.sungura.app"
-        minSdkVersion 21 // Recommended minimum for Firebase
+        minSdkVersion 21
         targetSdkVersion flutter.targetSdkVersion
-        versionCode flutter.versionCode.toInteger()
-        versionName flutter.versionName
+        versionCode flutterVersionCode.toInteger()
+        versionName flutterVersionName
         multiDexEnabled true
         resConfigs "en", "us"
         manifestPlaceholders = [
-            'appAuthRedirectScheme': 'com.sungura.app' // Your package name
+            'appAuthRedirectScheme': 'com.sungura.app'
         ]
     }
 
-    buildTypes {
+    signingConfigs {
         release {
+            keyAlias keystoreProperties['keyAlias']
+            keyPassword keystoreProperties['keyPassword']
+            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+            storePassword keystoreProperties['storePassword']
+        }
+    }
+
+    buildTypes {
+        debug {
             signingConfig signingConfigs.debug
-            // Add these for release builds
+        }
+        release {
+            signingConfig signingConfigs.release
             minifyEnabled true
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 }
@@ -53,20 +83,44 @@ android {
 flutter {
     source '../..'
 }
+// Add this to patch flutter_secure_storage
+subprojects {
+    afterEvaluate { project ->
+        if (project.name == 'flutter_secure_storage') {
+            android {
+                namespace 'com.it_nomads.fluttersecurestorage'
+                compileSdkVersion flutter.compileSdkVersion
+                defaultConfig {
+                    minSdkVersion 21
+                }
+            }
+        }
+    }
+}
 
 dependencies {
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.7.20"
-    implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'androidx.multidex:multidex:2.0.1'
-
-    implementation platform('com.google.firebase:firebase-bom:33.11.0')
-    
-    // Firebase BoM
     implementation platform('com.google.firebase:firebase-bom:32.7.0')
+    implementation 'com.google.firebase:firebase-analytics'
     implementation 'com.google.firebase:firebase-auth-ktx'
     implementation 'com.google.firebase:firebase-firestore-ktx'
-    
-    // For phone auth
     implementation 'com.google.android.gms:play-services-auth:20.7.0'
     implementation 'com.google.android.gms:play-services-auth-api-phone:18.0.1'
+    implementation 'androidx.multidex:multidex:2.0.1'
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22'
+    implementation 'androidx.core:core-ktx:1.12.0'
+}
+
+apply plugin: 'com.google.gms.google-services'
+
+subprojects {
+    afterEvaluate { project ->
+        if (project.name == 'geolocator_android') {
+            android {
+                compileSdkVersion 34
+                defaultConfig {
+                    minSdkVersion 21
+                }
+            }
+        }
+    }
 }

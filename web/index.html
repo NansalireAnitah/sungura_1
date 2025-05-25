@@ -18,6 +18,17 @@
 
   <title>front_end</title>
   <link rel="manifest" href="manifest.json">
+  <style>
+    input, textarea {
+      transform: none !important;
+      direction: ltr !important;
+      text-align: left !important;
+    }
+  </style>
+  <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=places"></script>
+
+  <!-- Google Maps JavaScript API -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY&libraries=places"></script>
 
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"></script>
@@ -27,7 +38,7 @@
 </head>
 <body>
   <!-- Firebase Configuration -->
-   <div id="recaptcha-container"></div>
+  <div id="recaptcha-container"></div>
   <script>
     const firebaseConfig = {
       apiKey: "AIzaSyC5kLRCoz-Z1SxlGcGlsJD5rms_XRyg6HA",
@@ -41,7 +52,7 @@
     firebase.initializeApp(firebaseConfig);
   </script>
 
-  <!-- Flutter Bootstrap -->
-  <script src="flutter_bootstrap.js" async></script>
+  <!-- Flutter Web Script -->
+  <script src="main.dart.js" type="application/javascript"></script>
 </body>
 </html>

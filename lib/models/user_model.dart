@@ -48,4 +48,8 @@ class UserModel {
       profileImageUrl: profileImageUrl ?? this.profileImageUrl,
     );
   }
+
+  updateEmail(String trim) {}
+
+  updatePassword(String text) {}
 }
