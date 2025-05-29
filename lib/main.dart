@@ -1,15 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:front_end/screens/admin_dashboard_screen.dart';
 import 'package:front_end/screens/menu_screen.dart';
-import 'package:front_end/providers/admin_user_provider.dart';
 import 'package:front_end/providers/order_provider.dart';
 import 'package:front_end/providers/product_provider.dart';
 import 'package:front_end/providers/notification_provider.dart';
 import 'package:front_end/providers/cart_provider.dart';
 import 'package:front_end/providers/auth_provider.dart';
+import 'package:front_end/providers/admin_user_provider.dart'; // Add this import
 import 'package:front_end/screens/splash_screen.dart';
 import 'package:front_end/screens/signup.dart';
 import 'package:front_end/screens/home_screen.dart';
@@ -26,27 +25,50 @@ void main() async {
   };
 
   try {
+    // Initialize Firebase only if not already initialized
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
     debugPrint("Firebase initialized successfully");
+
     runApp(
       MultiProvider(
         providers: [
           ChangeNotifierProvider(create: (_) => MyAuthProvider()),
-          ChangeNotifierProvider(create: (_) => AdminUserProvider()),
           ChangeNotifierProvider(create: (_) => CartProvider()),
           ChangeNotifierProvider(create: (_) => ProductProvider()),
           ChangeNotifierProvider(create: (_) => NotificationProvider()),
           ChangeNotifierProvider(create: (_) => OrderProvider()),
+          ChangeNotifierProvider(
+              create: (_) => AdminUserProvider()), // Add this line
         ],
         child: const MyApp(),
       ),
     );
   } catch (e, stackTrace) {
-    debugPrint("🔥 Firebase Error: $e");
-    debugPrintStack(stackTrace: stackTrace);
-    runApp(const ErrorApp());
+    // Check if the error is specifically about duplicate app initialization
+    if (e.toString().contains('duplicate-app') ||
+        e.toString().contains('already exists')) {
+      debugPrint("Firebase already initialized, continuing with app startup");
+      runApp(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider(create: (_) => MyAuthProvider()),
+            ChangeNotifierProvider(create: (_) => CartProvider()),
+            ChangeNotifierProvider(create: (_) => ProductProvider()),
+            ChangeNotifierProvider(create: (_) => NotificationProvider()),
+            ChangeNotifierProvider(create: (_) => OrderProvider()),
+            ChangeNotifierProvider(
+                create: (_) => AdminUserProvider()), // Add this line here too
+          ],
+          child: const MyApp(),
+        ),
+      );
+    } else {
+      debugPrint("🔥 Firebase Initialization Error: $e");
+      debugPrintStack(stackTrace: stackTrace);
+      runApp(const ErrorApp());
+    }
   }
 }
 
@@ -67,7 +89,7 @@ class MyApp extends StatelessWidget {
       darkTheme: ThemeData.light(useMaterial3: true),
       builder: (context, child) {
         return Directionality(
-          textDirection: TextDirection.ltr, // Enforce LTR globally
+          textDirection: TextDirection.ltr,
           child: child!,
         );
       },
@@ -80,6 +102,7 @@ class MyApp extends StatelessWidget {
         '/login': (context) => const LoginScreen(),
         '/admin': (context) => const AdminDashboard(),
         '/profile': (context) => const ProfileScreen(),
+        '/authWrapper': (context) => const AuthWrapper(),
       },
     );
   }
@@ -90,7 +113,11 @@ class SplashScreenWrapper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SplashScreen(onAddToCart: (product) {}, onFinish: () {});
+    return SplashScreen(
+        onAddToCart: (product) {},
+        onFinish: () {
+          Navigator.of(context).pushReplacementNamed('/authWrapper');
+        });
   }
 }
 
@@ -99,51 +126,28 @@ class AuthWrapper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
-        }
+    final authProvider = Provider.of<MyAuthProvider>(context);
 
-        if (snapshot.hasError) {
-          return Scaffold(
-            body: Center(
-              child: Text('Error: ${snapshot.error.toString()}'),
-            ),
-          );
-        }
+    // Wait for MyAuthProvider to initialize
+    if (!authProvider.isInitialized) {
+      debugPrint('AuthWrapper: Waiting for MyAuthProvider initialization');
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
 
-        if (snapshot.hasData) {
-          return FutureBuilder<String?>(
-            future: Provider.of<MyAuthProvider>(context, listen: false)
-                .getUserRole(snapshot.data!.uid),
-            builder: (context, roleSnapshot) {
-              if (roleSnapshot.connectionState == ConnectionState.waiting) {
-                return const Scaffold(
-                  body: Center(child: CircularProgressIndicator()),
-                );
-              }
+    // Check if user is authenticated
+    if (authProvider.user == null) {
+      debugPrint(
+          'AuthWrapper: No user authenticated, redirecting to LoginScreen');
+      return const LoginScreen();
+    }
 
-              if (roleSnapshot.hasError) {
-                return Scaffold(
-                  body: Center(
-                    child: Text('Error: ${roleSnapshot.error.toString()}'),
-                  ),
-                );
-              }
+    // Route based on role
+    final role = authProvider.role ?? 'user';
+    debugPrint('AuthWrapper: User authenticated, role: $role');
 
-              final role = roleSnapshot.data;
-              return role == 'admin' ? const AdminDashboard() : const HomeScreen();
-            },
-          );
-        }
-
-        return const LoginScreen();
-      },
-    );
+    return role == 'admin' ? const AdminDashboard() : const HomeScreen();
   }
 }
 
@@ -190,6 +194,8 @@ class ErrorApp extends StatelessWidget {
                   ),
                 ),
                 onPressed: () {
+                  // Note: Calling main() recursively isn't ideal.
+                  // Consider using a proper restart mechanism instead.
                   main();
                 },
                 child: const Text('RESTART APP'),

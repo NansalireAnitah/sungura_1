@@ -1,0 +1,2 @@
+D:/my-apps/FinalYearPrjctFrontend/android/app/.cxx/Debug/1a2v3i1s/armeabi-v7a/CMakeFiles/edit_cache.dir
+D:/my-apps/FinalYearPrjctFrontend/android/app/.cxx/Debug/1a2v3i1s/armeabi-v7a/CMakeFiles/rebuild_cache.dir

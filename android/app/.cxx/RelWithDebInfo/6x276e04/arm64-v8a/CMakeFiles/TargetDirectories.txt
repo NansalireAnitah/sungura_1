@@ -1,0 +1,2 @@
+D:/my-apps/FinalYearPrjctFrontend/android/app/.cxx/RelWithDebInfo/6x276e04/arm64-v8a/CMakeFiles/edit_cache.dir
+D:/my-apps/FinalYearPrjctFrontend/android/app/.cxx/RelWithDebInfo/6x276e04/arm64-v8a/CMakeFiles/rebuild_cache.dir
