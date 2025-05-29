@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:carousel_slider/carousel_slider.dart';
+import 'package:carousel_slider/carousel_slider.dart' as carousel;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import '../providers/cart_provider.dart';
@@ -21,8 +21,6 @@ class _MenuScreenState extends State<MenuScreen> {
   final TextEditingController _searchController = TextEditingController();
   List<Product> filteredProducts = [];
   String? _selectedCategory;
-  
-  get name => null;
 
   @override
   void initState() {
@@ -41,7 +39,8 @@ class _MenuScreenState extends State<MenuScreen> {
 
   void _onSearchChanged() {
     final query = _searchController.text.toLowerCase();
-    final productProvider = Provider.of<ProductProvider>(context, listen: false);
+    final productProvider =
+        Provider.of<ProductProvider>(context, listen: false);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         setState(() {
@@ -52,17 +51,19 @@ class _MenuScreenState extends State<MenuScreen> {
                       .where((product) => product.category == _selectedCategory)
                       .toList()
               : productProvider.products.where((product) {
-name.toLowerCase();
+                  final name = product.name.toLowerCase();
                   return name.contains(query);
                 }).toList();
-          if (query.isNotEmpty) _selectedCategory = null; // Clear category filter on search
+          if (query.isNotEmpty)
+            _selectedCategory = null; // Clear category filter on search
         });
       }
     });
   }
 
   void _filterByCategory(String category) {
-    final productProvider = Provider.of<ProductProvider>(context, listen: false);
+    final productProvider =
+        Provider.of<ProductProvider>(context, listen: false);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         setState(() {
@@ -76,10 +77,16 @@ name.toLowerCase();
   }
 
   void _clearCategoryFilter() {
-    final productProvider = Provider.of<ProductProvider>(context, listen: false);
+    final productProvider =
+        Provider.of<ProductProvider>(context, listen: false);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-;
+        setState(() {
+          _selectedCategory = null;
+          filteredProducts = productProvider.products
+              .where((product) => product.isAvailable)
+              .toList();
+        });
       }
     });
   }
@@ -112,7 +119,8 @@ name.toLowerCase();
             return const Center(child: CircularProgressIndicator());
           }
           if (filteredProducts.isEmpty && !productProvider.isLoading) {
-            filteredProducts = productProvider.products.where((p) => p.isAvailable).toList();
+            filteredProducts =
+                productProvider.products.where((p) => p.isAvailable).toList();
           }
           if (filteredProducts.isEmpty) {
             return const Center(child: Text('No products available'));
@@ -137,8 +145,10 @@ name.toLowerCase();
                 ),
                 Card(
                   elevation: 2,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  margin: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 5.0),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                  margin: const EdgeInsets.symmetric(
+                      horizontal: 10.0, vertical: 5.0),
                   child: StreamBuilder<QuerySnapshot>(
                     stream: FirebaseFirestore.instance
                         .collection('carousel_items')
@@ -149,14 +159,15 @@ name.toLowerCase();
                         return const Center(child: CircularProgressIndicator());
                       }
                       if (snapshot.hasError) {
-                        return const Center(child: Text('Error loading carousel'));
+                        return const Center(
+                            child: Text('Error loading carousel'));
                       }
                       final items = snapshot.data?.docs ?? [];
                       if (items.isEmpty) {
                         return const Center(child: Text('No carousel items'));
                       }
-                      return CarouselSlider(
-                        options: CarouselOptions(
+                      return carousel.CarouselSlider(
+                        options: carousel.CarouselOptions(
                           height: getCarouselHeight(context),
                           aspectRatio: 16 / 9,
                           viewportFraction: getViewportFraction(context),
@@ -165,7 +176,8 @@ name.toLowerCase();
                           reverse: false,
                           autoPlay: true,
                           autoPlayInterval: const Duration(seconds: 3),
-                          autoPlayAnimationDuration: const Duration(milliseconds: 800),
+                          autoPlayAnimationDuration:
+                              const Duration(milliseconds: 800),
                           autoPlayCurve: Curves.fastOutSlowIn,
                           enlargeCenterPage: true,
                           scrollDirection: Axis.horizontal,
@@ -180,7 +192,8 @@ name.toLowerCase();
                                 fit: BoxFit.cover,
                                 onError: (exception, stackTrace) {
                                   if (kDebugMode) {
-                                    print('Carousel image error for ${item['imageUrl']}: $exception');
+                                    print(
+                                        'Carousel image error for ${item['imageUrl']}: $exception');
                                   }
                                 },
                               ),
@@ -209,13 +222,15 @@ name.toLowerCase();
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 10.0),
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 8.0, horizontal: 10.0),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
                         'Categories',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.bold),
                       ),
                       if (_selectedCategory != null)
                         TextButton(
@@ -246,7 +261,8 @@ name.toLowerCase();
                   child: GridView.builder(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: 2,
                       childAspectRatio: 0.75,
                       crossAxisSpacing: 10,
@@ -256,7 +272,8 @@ name.toLowerCase();
                     itemBuilder: (context, index) {
                       final product = filteredProducts[index];
                       final cartItem = {
-                        'id': product.id, // Added to support CartProvider duplicate check
+                        'id': product
+                            .id, // Added to support CartProvider duplicate check
                         'title': product.name,
                         'price': product.price,
                         'image': product.imageUrl,
@@ -267,10 +284,12 @@ name.toLowerCase();
                         onAddToCart: () {
                           cartProvider.addItem(cartItem);
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('${product.name} added to cart')),
+                            SnackBar(
+                                content: Text('${product.name} added to cart')),
                           );
                         },
-                        isInCart: cartProvider.items.any((item) => item['id'] == product.id),
+                        isInCart: cartProvider.items
+                            .any((item) => item['id'] == product.id),
                       );
                     },
                   ),
@@ -294,7 +313,8 @@ name.toLowerCase();
           children: [
             CircleAvatar(
               radius: 30,
-              backgroundColor: isSelected ? Colors.green[100] : Colors.grey[200],
+              backgroundColor:
+                  isSelected ? Colors.green[100] : Colors.grey[200],
               child: ClipOval(
                 child: Image.asset(
                   imagePath,
@@ -352,7 +372,8 @@ class ProductCard extends StatelessWidget {
         children: [
           Expanded(
             child: ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(10)),
               child: _buildImage(),
             ),
           ),
@@ -363,7 +384,8 @@ class ProductCard extends StatelessWidget {
               children: [
                 Text(
                   product['title']?.toString() ?? 'Unknown Item',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 14),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -394,7 +416,8 @@ class ProductCard extends StatelessWidget {
   }
 
   Widget _buildImage() {
-    final imageUrl = product['image']?.toString() ?? 'https://via.placeholder.com/150';
+    final imageUrl =
+        product['image']?.toString() ?? 'https://via.placeholder.com/150';
     return Image.network(
       imageUrl,
       fit: BoxFit.cover,

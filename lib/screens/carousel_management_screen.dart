@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:file_picker/file_picker.dart';
+// import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -11,7 +11,8 @@ class CarouselManagementScreen extends StatefulWidget {
 
   @override
   // ignore: library_private_types_in_public_api
-  _CarouselManagementScreenState createState() => _CarouselManagementScreenState();
+  _CarouselManagementScreenState createState() =>
+      _CarouselManagementScreenState();
 }
 
 class _CarouselManagementScreenState extends State<CarouselManagementScreen> {
@@ -33,26 +34,26 @@ class _CarouselManagementScreenState extends State<CarouselManagementScreen> {
   // Pick a file (image or video)
   Future<void> _pickFile() async {
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4'],
-      );
+      // FilePickerResult? result = await FilePicker.platform.pickFiles(
+      //   type: FileType.custom,
+      //   allowedExtensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4'],
+      // );
 
-      if (result != null && result.files.single.path != null) {
-        File file = File(result.files.single.path!);
-        // Check file size (ImgBB limit: 32MB)
-        final fileSizeMB = file.lengthSync() / (1024 * 1024);
-        if (fileSizeMB > 32) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('File size exceeds 32MB limit')),
-          );
-          return;
-        }
-        setState(() {
-          _selectedFile = file;
-          _imageUrlController.text = result.files.single.name;
-        });
-      }
+      // if (result != null && result.files.single.path != null) {
+      //   File file = File(result.files.single.path!);
+      //   // Check file size (ImgBB limit: 32MB)
+      //   final fileSizeMB = file.lengthSync() / (1024 * 1024);
+      //   if (fileSizeMB > 32) {
+      //     ScaffoldMessenger.of(context).showSnackBar(
+      //       const SnackBar(content: Text('File size exceeds 32MB limit')),
+      //     );
+      //     return;
+      //   }
+      //   setState(() {
+      //     _selectedFile = file;
+      //     _imageUrlController.text = result.files.single.name;
+      //   });
+      // }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error picking file: $e')),
@@ -82,10 +83,12 @@ class _CarouselManagementScreenState extends State<CarouselManagementScreen> {
         if (jsonResponse['success']) {
           return jsonResponse['data']['url'];
         } else {
-          throw Exception('ImgBB upload failed: ${jsonResponse['error']['message']}');
+          throw Exception(
+              'ImgBB upload failed: ${jsonResponse['error']['message']}');
         }
       } else {
-        throw Exception('ImgBB upload failed with status: ${response.statusCode}');
+        throw Exception(
+            'ImgBB upload failed with status: ${response.statusCode}');
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -212,8 +215,10 @@ class _CarouselManagementScreenState extends State<CarouselManagementScreen> {
               Expanded(
                 child: TextFormField(
                   controller: _imageUrlController,
-                  decoration: const InputDecoration(labelText: 'Image/Video URL'),
-                  readOnly: true, // Prevent manual editing since URL comes from ImgBB
+                  decoration:
+                      const InputDecoration(labelText: 'Image/Video URL'),
+                  readOnly:
+                      true, // Prevent manual editing since URL comes from ImgBB
                   validator: (value) {
                     if (value == null || value.isEmpty) {
                       return 'Please select a file or enter a URL';
@@ -263,7 +268,8 @@ class _CarouselManagementScreenState extends State<CarouselManagementScreen> {
   // Building the list of carousel items
   Widget _buildCarouselList() {
     return StreamBuilder<QuerySnapshot>(
-      stream: carouselCollection.orderBy('createdAt', descending: true).snapshots(),
+      stream:
+          carouselCollection.orderBy('createdAt', descending: true).snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -284,7 +290,8 @@ class _CarouselManagementScreenState extends State<CarouselManagementScreen> {
             var item = items[index];
             return Card(
               elevation: 2,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
               margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
               child: ListTile(
                 leading: SizedBox(
@@ -299,7 +306,8 @@ class _CarouselManagementScreenState extends State<CarouselManagementScreen> {
                     },
                     errorBuilder: (context, error, stackTrace) {
                       if (kDebugMode) {
-                        print('Carousel image error for ${item['imageUrl']}: $error');
+                        print(
+                            'Carousel image error for ${item['imageUrl']}: $error');
                       }
                       return const Icon(Icons.image_not_supported, size: 50);
                     },
@@ -311,7 +319,9 @@ class _CarouselManagementScreenState extends State<CarouselManagementScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      item['isVisible'] ? Icons.visibility : Icons.visibility_off,
+                      item['isVisible']
+                          ? Icons.visibility
+                          : Icons.visibility_off,
                       color: item['isVisible'] ? Colors.green : Colors.red,
                     ),
                     IconButton(
@@ -328,7 +338,8 @@ class _CarouselManagementScreenState extends State<CarouselManagementScreen> {
                     ),
                     IconButton(
                       icon: const Icon(Icons.delete, color: Colors.red),
-                      onPressed: () => _deleteCarouselItem(item.id, item['label']),
+                      onPressed: () =>
+                          _deleteCarouselItem(item.id, item['label']),
                     ),
                   ],
                 ),

@@ -3,23 +3,21 @@
 
     <!-- Internet permission (you already have this) -->
     <uses-permission android:name="android.permission.INTERNET" />
-
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     
     <!-- Required for phone auth -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
-    <uses-permission android:name="android.permission.READ_SMS" /> <!-- Optional for auto-verification -->
-    <uses-permission android:name="android.permission.READ_PHONE_STATE" /> <!-- For device verification -->
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     
     <!-- For newer Android versions -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <application
-        android:label="front_end"
-        android:name="${applicationName}"
+        android:label="Sungura"
         android:icon="@mipmap/ic_launcher"
         android:requestLegacyExternalStorage="true">
         
@@ -31,28 +29,25 @@
             android:name="com.google.firebase.auth.USE_EMULATOR"
             android:value="false" />
             
-        <!-- Google Play services version -->
+        <!-- Google Play services version (removed duplicate) -->
         <meta-data
             android:name="com.google.android.gms.version"
             android:value="@integer/google_play_services_version" />
             
-        <!-- Existing metadata (keep this) -->
+        <!-- Flutter embedding -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-
-        <meta-data
-            android:name="com.google.android.gms.version"
-            android:value="@integer/google_play_services_version" />
             
+        <!-- Firebase auto init -->
         <meta-data
             android:name="firebase_auto_init"
             android:value="true" />
             
-        <!-- Fix duplicate android:name attribute in your existing geo API key -->
+        <!-- Google Maps API Key - Replace with your actual key -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="YOUR_GOOGLE_MAPS_API_KEY" />
+            android:value="YOUR_ACTUAL_GOOGLE_MAPS_API_KEY_HERE" />
 
         <activity
             android:name=".MainActivity"
@@ -73,16 +68,16 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
             
-            <!-- Add deep link support for reCAPTCHA -->
+            <!-- Deep link support for reCAPTCHA - Replace with your actual domain -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="YOUR_APP_DOMAIN" />
+                <data android:scheme="https" android:host="yourapp.com" />
             </intent-filter>
         </activity>
         
-        <!-- Add this for SMS retriever API -->
+        <!-- SMS retriever API receiver -->
         <receiver
             android:name="com.google.android.gms.auth.api.phone.SmsRetrieverBroadcastReceiver"
             android:exported="true">
@@ -92,7 +87,7 @@
         </receiver>
     </application>
 
-    <!-- Keep your existing queries -->
+    <!-- Queries for text processing -->
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>

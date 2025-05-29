@@ -11,7 +11,7 @@ import 'package:front_end/screens/signup.dart';
 import 'package:provider/provider.dart';
 import 'package:front_end/providers/cart_provider.dart';
 import 'package:front_end/providers/auth_provider.dart';
-import 'package:image_picker_web/image_picker_web.dart';
+// import 'package:image_picker_web/image_picker_web.dart';
 import 'package:universal_html/html.dart' as html;
 import 'package:intl/intl.dart';
 
@@ -52,10 +52,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
           .orderBy('createdAt', descending: true)
           .get();
 
-      return querySnapshot.docs.map((doc) => {
-            ...doc.data(),
-            'id': doc.id,
-          }).toList();
+      return querySnapshot.docs
+          .map((doc) => {
+                ...doc.data(),
+                'id': doc.id,
+              })
+          .toList();
     } catch (e) {
       debugPrint('Error fetching orders: $e');
       throw Exception('Failed to fetch orders: $e');
@@ -93,10 +95,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
 
       if (kIsWeb) {
-        final html.File? pickedFile = await ImagePickerWeb.getImageAsFile();
-        if (pickedFile != null) {
-          imageUrl = await _uploadImageToImgBBWeb(pickedFile);
-        }
+        // final html.File? pickedFile = await ImagePickerWeb.getImageAsFile();
+        // if (pickedFile != null) {
+        //   imageUrl = await _uploadImageToImgBBWeb(pickedFile);
+        // }
       } else {
         final pickedFile =
             await ImagePicker().pickImage(source: ImageSource.gallery);
@@ -106,7 +108,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
 
       if (imageUrl != null) {
-        final authProvider = Provider.of<MyAuthProvider>(context, listen: false);
+        final authProvider =
+            Provider.of<MyAuthProvider>(context, listen: false);
         final firebaseUser = FirebaseAuth.instance.currentUser;
 
         if (firebaseUser != null) {
@@ -214,9 +217,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
           }
 
           final userData = userSnapshot.data;
-          final userName = userData?['name']?.toString() ?? firebaseUser?.displayName ?? 'Guest';
+          final userName = userData?['name']?.toString() ??
+              firebaseUser?.displayName ??
+              'Guest';
           final userEmail = firebaseUser?.email ?? '';
-          final userPhotoUrl = userData?['profileImageUrl']?.toString() ?? firebaseUser?.photoURL;
+          final userPhotoUrl = userData?['profileImageUrl']?.toString() ??
+              firebaseUser?.photoURL;
 
           return SingleChildScrollView(
             child: Padding(
@@ -296,7 +302,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     FutureBuilder<List<Map<String, dynamic>>>(
                       future: _fetchOrderHistory(),
                       builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
                           return const Padding(
                             padding: EdgeInsets.symmetric(horizontal: 20),
                             child: Center(child: CircularProgressIndicator()),
@@ -307,7 +314,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 20),
                             child: Column(
                               children: [
-                                Text('Failed to load order history: ${snapshot.error}'),
+                                Text(
+                                    'Failed to load order history: ${snapshot.error}'),
                                 const SizedBox(height: 10),
                                 ElevatedButton(
                                   onPressed: () => setState(() {}),
@@ -329,14 +337,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             final items = (order['items'] as List<dynamic>?)
                                     ?.cast<Map<String, dynamic>>() ??
                                 [];
-                            final total = (order['total'] as num?)?.toDouble() ?? 0.0;
-                            final createdAt = (order['createdAt'] as Timestamp?)?.toDate();
-                            final orderId = order['id']?.toString() ?? 'Unknown';
-                            final deliveryMethod = order['deliveryMethod']?.toString() ?? 'Unknown';
+                            final total =
+                                (order['total'] as num?)?.toDouble() ?? 0.0;
+                            final createdAt =
+                                (order['createdAt'] as Timestamp?)?.toDate();
+                            final orderId =
+                                order['id']?.toString() ?? 'Unknown';
+                            final deliveryMethod =
+                                order['deliveryMethod']?.toString() ??
+                                    'Unknown';
                             final location = order['location'] != null
-                                ? order['location']['address']?.toString() ?? 'N/A'
+                                ? order['location']['address']?.toString() ??
+                                    'N/A'
                                 : 'Take Away';
-                            final status = order['status']?.toString() ?? 'Unknown';
+                            final status =
+                                order['status']?.toString() ?? 'Unknown';
 
                             return Card(
                               elevation: 2,
@@ -351,7 +366,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
                                       children: [
                                         Text(
                                           'Order #${orderId.substring(0, 8)}',
@@ -367,7 +383,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                               fontSize: 12,
                                             ),
                                           ),
-                                          backgroundColor: _getStatusColor(status),
+                                          backgroundColor:
+                                              _getStatusColor(status),
                                         ),
                                       ],
                                     ),
@@ -401,37 +418,53 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     ),
                                     const SizedBox(height: 4),
                                     ...items.map((item) {
-                                      final itemName = item['name']?.toString() ?? 'Unknown';
-                                      final quantity = item['quantity'] as int? ?? 1;
-                                      final price = (item['price'] as num?)?.toDouble() ?? 0.0;
+                                      final itemName =
+                                          item['name']?.toString() ?? 'Unknown';
+                                      final quantity =
+                                          item['quantity'] as int? ?? 1;
+                                      final price =
+                                          (item['price'] as num?)?.toDouble() ??
+                                              0.0;
                                       return Padding(
-                                        padding: const EdgeInsets.only(left: 8, bottom: 4),
+                                        padding: const EdgeInsets.only(
+                                            left: 8, bottom: 4),
                                         child: Row(
                                           children: [
                                             ClipRRect(
-                                              borderRadius: BorderRadius.circular(8),
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
                                               child: Image.network(
-                                                item['image']?.toString() ?? 'https://via.placeholder.com/50',
+                                                item['image']?.toString() ??
+                                                    'https://via.placeholder.com/50',
                                                 width: 50,
                                                 height: 50,
                                                 fit: BoxFit.cover,
-                                                errorBuilder: (context, error, stackTrace) {
-                                                  return const Icon(Icons.fastfood, size: 50);
+                                                errorBuilder: (context, error,
+                                                    stackTrace) {
+                                                  return const Icon(
+                                                      Icons.fastfood,
+                                                      size: 50);
                                                 },
                                               ),
                                             ),
                                             const SizedBox(width: 12),
                                             Expanded(
                                               child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
                                                 children: [
                                                   Text(
                                                     '$itemName x$quantity',
-                                                    style: TextStyle(color: Colors.grey[700]),
+                                                    style: TextStyle(
+                                                        color:
+                                                            Colors.grey[700]),
                                                   ),
                                                   Text(
-                                                    _formatPrice(price * quantity),
-                                                    style: TextStyle(color: Colors.green[700]),
+                                                    _formatPrice(
+                                                        price * quantity),
+                                                    style: TextStyle(
+                                                        color:
+                                                            Colors.green[700]),
                                                   ),
                                                 ],
                                               ),
@@ -519,10 +552,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           leading: Icon(icon, color: Colors.black),
           title: Text(title),
           trailing: hasDropdown
-              ? Icon(
-                  title == "Order History" && _isOrderHistoryExpanded
-                      ? Icons.expand_less
-                      : Icons.expand_more)
+              ? Icon(title == "Order History" && _isOrderHistoryExpanded
+                  ? Icons.expand_less
+                  : Icons.expand_more)
               : null,
           onTap: onTap,
         ),

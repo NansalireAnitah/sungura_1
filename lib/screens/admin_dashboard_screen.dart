@@ -3,14 +3,13 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:front_end/screens/login_screen.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:carousel_slider/carousel_slider.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
-import 'package:image_picker_web/image_picker_web.dart';
+// import 'package:image_picker_web/image_picker_web.dart';
 import 'package:universal_html/html.dart' as html;
 import '../providers/auth_provider.dart';
 import '../providers/admin_user_provider.dart';
@@ -88,7 +87,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
     final jsonData = jsonDecode(responseData);
 
     if (response.statusCode != 200 || !jsonData['success']) {
-      throw Exception('Failed to upload image: ${jsonData['error']?['message'] ?? 'Unknown error'}');
+      throw Exception(
+          'Failed to upload image: ${jsonData['error']?['message'] ?? 'Unknown error'}');
     }
 
     return jsonData['data']['url'];
@@ -110,7 +110,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
     final jsonData = jsonDecode(response.body);
     if (response.statusCode != 200 || !jsonData['success']) {
-      throw Exception('Failed to upload image: ${jsonData['error']?['message'] ?? 'Unknown error'}');
+      throw Exception(
+          'Failed to upload image: ${jsonData['error']?['message'] ?? 'Unknown error'}');
     }
 
     return jsonData['data']['url'];
@@ -125,16 +126,17 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
         String? imageUrl;
         if (kIsWeb) {
-          final html.File? pickedFile = await ImagePickerWeb.getImageAsFile();
-          if (pickedFile != null) {
-            final fileSizeMB = pickedFile.size / (1024 * 1024);
-            if (fileSizeMB > 32) {
-              throw Exception('File size exceeds 32MB limit');
-            }
-            imageUrl = await _uploadImageToImgBBWeb(pickedFile);
-          }
+          // final html.File? pickedFile = await ImagePickerWeb.getImageAsFile();
+          // if (pickedFile != null) {
+          //   final fileSizeMB = pickedFile.size / (1024 * 1024);
+          //   if (fileSizeMB > 32) {
+          //     throw Exception('File size exceeds 32MB limit');
+          //   }
+          //   imageUrl = await _uploadImageToImgBBWeb(pickedFile);
+          // }
         } else {
-          final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
+          final pickedFile =
+              await ImagePicker().pickImage(source: ImageSource.gallery);
           if (pickedFile != null) {
             File file = File(pickedFile.path);
             final fileSizeMB = file.lengthSync() / (1024 * 1024);
@@ -146,7 +148,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
         }
 
         if (imageUrl != null) {
-          await firestore.FirebaseFirestore.instance.collection('carousel_items').add({
+          await firestore.FirebaseFirestore.instance
+              .collection('carousel_items')
+              .add({
             'imageUrl': imageUrl,
             'label': _labelController.text,
             'isVisible': _isVisible,
@@ -154,7 +158,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
           });
 
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Carousel image added: ${_labelController.text}')),
+            SnackBar(
+                content:
+                    Text('Carousel image added: ${_labelController.text}')),
           );
 
           _labelController.clear();
@@ -195,8 +201,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
         child: ListView(
           padding: EdgeInsets.zero,
           children: [
-            DrawerHeader(
-              decoration: const BoxDecoration(color: Color(0xFFFFC107)),
+            const DrawerHeader(
+              decoration: BoxDecoration(color: Color(0xFFFFC107)),
               child: Text(
                 'Admin Menu',
                 style: TextStyle(color: Colors.black, fontSize: 24),
@@ -310,8 +316,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     children: [
                       _buildStatCard('Total Users',
                           stats['users']?.toString() ?? '0', Icons.people),
-                      _buildStatCard('Total Orders',
-                          stats['orders']?.toString() ?? '0', Icons.shopping_bag),
+                      _buildStatCard(
+                          'Total Orders',
+                          stats['orders']?.toString() ?? '0',
+                          Icons.shopping_bag),
                       _buildStatCard('Products',
                           stats['products']?.toString() ?? '0', Icons.fastfood),
                       _buildStatCard(
@@ -537,7 +545,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
           const SizedBox(height: 10),
           Card(
             elevation: 2,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             child: Padding(
               padding: const EdgeInsets.all(16.0),
               child: Form(
@@ -574,10 +583,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFFFC107),
                         foregroundColor: Colors.black,
-                        padding:
-                            const EdgeInsets.symmetric(vertical: 15, horizontal: 20),
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 15, horizontal: 20),
                       ),
-                      child: Text(_isUploading ? 'Uploading...' : 'Upload Image'),
+                      child:
+                          Text(_isUploading ? 'Uploading...' : 'Upload Image'),
                     ),
                   ],
                 ),
@@ -654,13 +664,16 @@ class _AdminDashboardState extends State<AdminDashboard> {
                         fit: BoxFit.cover,
                         loadingBuilder: (context, child, loadingProgress) {
                           if (loadingProgress == null) return child;
-                          return const Center(child: CircularProgressIndicator());
+                          return const Center(
+                              child: CircularProgressIndicator());
                         },
                         errorBuilder: (context, error, stackTrace) {
                           if (kDebugMode) {
-                            print('Carousel image error for ${item['imageUrl']}: $error');
+                            print(
+                                'Carousel image error for ${item['imageUrl']}: $error');
                           }
-                          return const Icon(Icons.image_not_supported, size: 50);
+                          return const Icon(Icons.image_not_supported,
+                              size: 50);
                         },
                       ),
                     ),
@@ -725,7 +738,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
         const SizedBox(height: 8),
         Card(
           elevation: 2,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           child: content,
         ),
       ],
@@ -821,7 +835,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
                                             return child;
                                           }
                                           return const Center(
-                                              child: CircularProgressIndicator());
+                                              child:
+                                                  CircularProgressIndicator());
                                         },
                                         errorBuilder:
                                             (context, error, stackTrace) {
@@ -856,8 +871,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
     try {
       final usersSnapshot =
           await firestore.FirebaseFirestore.instance.collection('users').get();
-      final productsSnapshot =
-          await firestore.FirebaseFirestore.instance.collection('products').get();
+      final productsSnapshot = await firestore.FirebaseFirestore.instance
+          .collection('products')
+          .get();
       final ordersSnapshot =
           await firestore.FirebaseFirestore.instance.collection('orders').get();
 
@@ -866,7 +882,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
         'orders': ordersSnapshot.docs.length,
         'products': productsSnapshot.docs.length,
         'revenue': ordersSnapshot.docs.fold<double>(
-            0, (sum, doc) => sum + ((doc.data()['total'] as num?)?.toDouble() ?? 0)),
+            0,
+            (sum, doc) =>
+                sum + ((doc.data()['total'] as num?)?.toDouble() ?? 0)),
       };
     } catch (e) {
       throw Exception('Failed to load stats: $e');
@@ -1021,7 +1039,8 @@ class AdminCarousel extends StatelessWidget {
                     fit: BoxFit.cover,
                     onError: (exception, stackTrace) {
                       if (kDebugMode) {
-                        print('Carousel image error for ${item['imageUrl']}: $exception');
+                        print(
+                            'Carousel image error for ${item['imageUrl']}: $exception');
                       }
                     },
                   ),
@@ -1271,8 +1290,7 @@ class OrderListItem extends StatelessWidget {
                                       print(
                                           'Order item image error for ${item.image}: $error');
                                     }
-                                    return const Icon(
-                                        Icons.image_not_supported,
+                                    return const Icon(Icons.image_not_supported,
                                         size: 40);
                                   },
                                 ),
@@ -1306,7 +1324,8 @@ class OrderListItem extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: _getStatusColor(order.status).withOpacity(0.2),
                       borderRadius: BorderRadius.circular(20),
@@ -1413,7 +1432,8 @@ class ProductCard extends StatelessWidget {
             },
             errorBuilder: (context, error, stackTrace) {
               if (kDebugMode) {
-                print('ProductCard image error for ${product.imageUrl}: $error');
+                print(
+                    'ProductCard image error for ${product.imageUrl}: $error');
               }
               return Image.network(
                 'https://via.placeholder.com/150',

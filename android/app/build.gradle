@@ -23,18 +23,17 @@ if (flutterVersionName == null) {
     flutterVersionName = '1.0'
 }
 
-def keystoreProperties = new Properties()
-def keystorePropertiesFile = rootProject.file('key.properties')
-if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
-}
+// Commented out keystore properties for now
+// def keystoreProperties = new Properties()
+// def keystorePropertiesFile = rootProject.file('key.properties')
+// if (keystorePropertiesFile.exists()) {
+//     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+// }
 
 android {
-    compileSdkVersion 34
-    ndkVersion "25.2.9519653"
     namespace "com.sungura.app"
     compileSdkVersion flutter.compileSdkVersion
-    ndkVersion flutter.ndkVersion
+    ndkVersion "27.0.12077973"
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
@@ -47,7 +46,7 @@ android {
 
     defaultConfig {
         applicationId "com.sungura.app"
-        minSdkVersion 21
+        minSdkVersion flutter.minSdkVersion
         targetSdkVersion flutter.targetSdkVersion
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
@@ -58,21 +57,23 @@ android {
         ]
     }
 
-    signingConfigs {
-        release {
-            keyAlias keystoreProperties['keyAlias']
-            keyPassword keystoreProperties['keyPassword']
-            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
-            storePassword keystoreProperties['storePassword']
-        }
-    }
+    // Commented out signing configs for now
+    // signingConfigs {
+    //     release {
+    //         keyAlias keystoreProperties['keyAlias']
+    //         keyPassword keystoreProperties['keyPassword']
+    //         storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+    //         storePassword keystoreProperties['storePassword']
+    //     }
+    // }
 
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            signingConfig signingConfigs.release
+            // Commented out release signing config for now
+            // signingConfig signingConfigs.release
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
@@ -83,6 +84,7 @@ android {
 flutter {
     source '../..'
 }
+
 // Add this to patch flutter_secure_storage
 subprojects {
     afterEvaluate { project ->
@@ -91,7 +93,7 @@ subprojects {
                 namespace 'com.it_nomads.fluttersecurestorage'
                 compileSdkVersion flutter.compileSdkVersion
                 defaultConfig {
-                    minSdkVersion 21
+                    minSdkVersion flutter.minSdkVersion
                 }
             }
         }
@@ -116,9 +118,9 @@ subprojects {
     afterEvaluate { project ->
         if (project.name == 'geolocator_android') {
             android {
-                compileSdkVersion 34
+                compileSdkVersion flutter.compileSdkVersion
                 defaultConfig {
-                    minSdkVersion 21
+                    minSdkVersion flutter.minSdkVersion
                 }
             }
         }
