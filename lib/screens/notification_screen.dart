@@ -108,15 +108,13 @@ class _NotificationScreenState extends State<NotificationScreen> {
                         onDismissed: (_) async {
                           final provider = context.read<NotificationProvider>();
                           provider.deleteNotification(notification.id);
-                          if (user != null) {
-                            await firestore.FirebaseFirestore.instance
-                                .collection('users')
-                                .doc(user.uid)
-                                .collection('notifications')
-                                .doc(notification.id)
-                                .delete();
-                          }
-                        },
+                          await firestore.FirebaseFirestore.instance
+                              .collection('users')
+                              .doc(user.uid)
+                              .collection('notifications')
+                              .doc(notification.id)
+                              .delete();
+                                                },
                         child: Card(
                           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                           child: ListTile(
@@ -161,7 +159,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                             onTap: () async {
                               final provider = context.read<NotificationProvider>();
                               provider.markAsRead(notification.id);
-                              if (user != null && !notification.isRead) {
+                              if (!notification.isRead) {
                                 await firestore.FirebaseFirestore.instance
                                     .collection('users')
                                     .doc(user.uid)

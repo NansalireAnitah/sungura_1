@@ -361,7 +361,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                         .toLowerCase()
                         .contains(_userSearchQuery.toLowerCase()) ||
                     (user.name
-                            ?.toLowerCase()
+                            .toLowerCase()
                             .contains(_userSearchQuery.toLowerCase()) ??
                         false))
                 .toList();

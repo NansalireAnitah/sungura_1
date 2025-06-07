@@ -19,11 +19,11 @@ class CheckoutScreen extends StatefulWidget {
   final Function(Map<String, dynamic>) onAddToCart;
 
   const CheckoutScreen({
-    Key? key,
+    super.key,
     required this.cartItems,
     required this.onOrderPlaced,
     required this.onAddToCart,
-  }) : super(key: key);
+  });
 
   @override
   State<CheckoutScreen> createState() => _CheckoutScreenState();
@@ -64,7 +64,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     if (kIsWeb) {
       _isMapReady = false;
     } else {
-      Future.delayed(Duration(milliseconds: 500), () {
+      Future.delayed(const Duration(milliseconds: 500), () {
         setState(() => _isMapReady = true);
       });
     }

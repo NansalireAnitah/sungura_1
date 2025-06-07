@@ -54,8 +54,9 @@ class _MenuScreenState extends State<MenuScreen> {
                   final name = product.name.toLowerCase();
                   return name.contains(query);
                 }).toList();
-          if (query.isNotEmpty)
+          if (query.isNotEmpty) {
             _selectedCategory = null; // Clear category filter on search
+          }
         });
       }
     });
